@@ -1,66 +1,52 @@
 <?php
-include '../includes/session.php';
-include '../conexao.php';
-include '../includes/notiflix.php';
+session_start();
 
-$usuarioId = $_SESSION['usuario_id'];
-$admin = ($stmt = $pdo->prepare("SELECT admin FROM usuarios WHERE id = ?"))->execute([$usuarioId]) ? $stmt->fetchColumn() : null;
-
-if( $admin != 1){
-    $_SESSION['message'] = ['type' => 'warning', 'text' => 'Você não é um administrador!'];
+if(isset($_SESSION['usuario_id'])){
+    $_SESSION['message'] = ['type' => 'warning', 'text' => 'Você já está logado!'];
     header("Location: /");
     exit;
 }
 
-$nome = ($stmt = $pdo->prepare("SELECT nome FROM usuarios WHERE id = ?"))->execute([$usuarioId]) ? $stmt->fetchColumn() : null;
-$nome = $nome ? explode(' ', $nome)[0] : null;
+require_once '../conexao.php'; 
 
-$total_usuarios = ($stmt = $pdo->prepare("SELECT COUNT(*) FROM usuarios"))->execute() ? $stmt->fetchColumn() : 0;
-$total_depositos = ($stmt = $pdo->prepare("SELECT COUNT(*) FROM depositos WHERE status = 1"))->execute() ? $stmt->fetchColumn() : 0;
-$total_saldo = ($stmt = $pdo->prepare("SELECT SUM(saldo) FROM usuarios"))->execute() ? $stmt->fetchColumn() : 0;
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $nome = trim($_POST['nome']);
+    $telefone = trim($_POST['telefone']);
+    $email = trim($_POST['email']);
+    $senha = password_hash($_POST['senha'], PASSWORD_DEFAULT);
+    $ref = $_POST['ref'] ?? null;
 
-$sql = "
-    SELECT 
-        u.nome, 
-        d.valor, 
-        d.updated_at 
-    FROM 
-        depositos d
-    INNER JOIN 
-        usuarios u ON d.user_id = u.id
-    WHERE 
-        d.status = 'PAID'
-    ORDER BY 
-        d.updated_at DESC
-    LIMIT 5
-";
+    try {
+        $stmt_config = $pdo->query("SELECT cpa_padrao, revshare_padrao FROM config LIMIT 1");
+        $config = $stmt_config->fetch(PDO::FETCH_ASSOC);
+        
+        $cpa_padrao = $config['cpa_padrao'] ?? 0.00;
+        $revshare_padrao = $config['revshare_padrao'] ?? 0.00;
+    } catch (PDOException $e) {
+        $cpa_padrao = 0.00;
+        $revshare_padrao = 0.00;
+    }
 
-$stmt = $pdo->prepare($sql);
-$stmt->execute();
+    $stmt = $pdo->prepare("INSERT INTO usuarios 
+                          (nome, telefone, email, senha, saldo, indicacao, banido, comissao_cpa, comissao_revshare, created_at, updated_at) 
+                          VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?, NOW(), NOW())");
 
-$depositos_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-$sql = "
-    SELECT 
-        u.nome, 
-        s.valor, 
-        s.updated_at 
-    FROM 
-        saques s
-    INNER JOIN 
-        usuarios u ON s.user_id = u.id
-    WHERE 
-        s.status = 'PENDING'
-    ORDER BY 
-        s.updated_at DESC
-    LIMIT 5
-";
-
-$stmt = $pdo->prepare($sql);
-$stmt->execute();
-
-$saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
+    try {
+        $stmt->execute([$nome, $telefone, $email, $senha, $ref, $cpa_padrao, $revshare_padrao]);
+        
+        $usuarioId = $pdo->lastInsertId();
+        $_SESSION['usuario_id'] = $usuarioId;
+        $_SESSION['message'] = ['type' => 'success', 'text' => 'Cadastro realizado com sucesso!'];
+        
+        header("Location: /");
+        exit;
+    } catch (PDOException $e) {
+        error_log("Erro ao cadastrar: " . $e->getMessage());
+        $_SESSION['message'] = ['type' => 'failure', 'text' => 'Erro ao realizar cadastro!'];
+        header("Location: /cadastro");
+        exit;
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -68,1125 +54,835 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $nomeSite ?? 'Admin'; ?> - Dashboard Administrativo</title>
+    <title><?php echo $nomeSite;?> - Cadastro</title>
     
-    <!-- TailwindCSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     
-    <!-- Font Awesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     
-    <!-- Notiflix -->
+    <!-- Styles -->
+    <link rel="stylesheet" href="/assets/style/globalStyles.css?id=<?php echo time();?>"/>
+    
+    <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/notiflix@3.2.8/dist/notiflix-aio-3.2.8.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/notiflix@3.2.8/src/notiflix.min.css" rel="stylesheet">
-    
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    
+
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: #000000;
-            color: #ffffff;
-            min-height: 100vh;
-            overflow-x: hidden;
-        }
-        
-        /* Advanced Sidebar Styles */
-        .sidebar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 320px;
-            height: 100vh;
-            background: linear-gradient(145deg, #0a0a0a 0%, #141414 25%, #1a1a1a 50%, #0f0f0f 100%);
-            backdrop-filter: blur(20px);
-            border-right: 1px solid rgba(34, 197, 94, 0.2);
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            z-index: 1000;
-            box-shadow: 
-                0 0 50px rgba(34, 197, 94, 0.1),
-                inset 1px 0 0 rgba(255, 255, 255, 0.05);
-        }
-        
-        .sidebar::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: 
-                radial-gradient(circle at 20% 20%, rgba(34, 197, 94, 0.15) 0%, transparent 50%),
-                radial-gradient(circle at 80% 80%, rgba(16, 185, 129, 0.1) 0%, transparent 50%),
-                radial-gradient(circle at 40% 60%, rgba(59, 130, 246, 0.05) 0%, transparent 50%);
-            opacity: 0.8;
-            pointer-events: none;
-        }
-        
-        .sidebar.hidden {
-            transform: translateX(-100%);
-        }
-        
-        /* Enhanced Sidebar Header */
-        .sidebar-header {
+        /* Page Styles */
+        .cadastro-section {
+            margin-top: 100px;
+            padding: 4rem 0;
+            background: #0a0a0a;
+            min-height: calc(100vh - 100px);
             position: relative;
-            padding: 2.5rem 2rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, transparent 100%);
         }
-        
-        .logo {
-            display: flex;
+
+        .cadastro-container {
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 0 2rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
             align-items: center;
-            gap: 1rem;
-            text-decoration: none;
+            min-height: calc(100vh - 200px);
+        }
+
+        /* Left Section */
+        .left-section {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+        }
+
+        .brand-content {
             position: relative;
             z-index: 2;
         }
-        
-        .logo-icon {
-            width: 48px;
-            height: 48px;
-            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-            border-radius: 16px;
+
+        .brand-logo {
+            width: 120px;
+            height: 120px;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            border-radius: 24px;
+            margin-bottom: 2rem;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.5rem;
-            color: #ffffff;
-            box-shadow: 
-                0 8px 20px rgba(34, 197, 94, 0.3),
-                0 4px 8px rgba(0, 0, 0, 0.2);
+            font-size: 3rem;
+            color: white;
+            font-weight: 900;
+            box-shadow: 0 20px 40px rgba(34, 197, 94, 0.3);
             position: relative;
         }
-        
-        .logo-icon::after {
+
+        .brand-logo::after {
             content: '';
             position: absolute;
-            top: -2px;
-            left: -2px;
-            right: -2px;
-            bottom: -2px;
-            background: linear-gradient(135deg, #22c55e, #16a34a, #22c55e);
-            border-radius: 18px;
+            inset: -4px;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            border-radius: 28px;
             z-index: -1;
-            opacity: 0;
-            transition: opacity 0.3s ease;
+            opacity: 0.3;
+            animation: pulse 3s infinite;
         }
-        
-        .logo:hover .logo-icon::after {
-            opacity: 1;
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.3; }
+            50% { transform: scale(1.05); opacity: 0.1; }
         }
-        
-        .logo-text {
+
+        .brand-title {
+            font-size: 3rem;
+            font-weight: 900;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #ffffff, #9ca3af);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1.1;
+        }
+
+        .brand-subtitle {
+            font-size: 1.3rem;
+            color: #6b7280;
+            line-height: 1.6;
+            margin-bottom: 3rem;
+        }
+
+        .highlight-text {
+            color: #22c55e;
+            font-weight: 700;
+        }
+
+        .benefits-list {
             display: flex;
             flex-direction: column;
+            gap: 1.5rem;
         }
-        
-        .logo-title {
-            font-size: 1.5rem;
-            font-weight: 800;
-            color: #ffffff;
-            line-height: 1.2;
-        }
-        
-        .logo-subtitle {
-            font-size: 0.75rem;
-            color: #22c55e;
-            font-weight: 500;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        
-        /* Advanced Navigation */
-        .nav-menu {
-            padding: 2rem 0;
-            position: relative;
-        }
-        
-        .nav-section {
-            margin-bottom: 2rem;
-        }
-        
-        .nav-section-title {
-            padding: 0 2rem 0.75rem 2rem;
-            font-size: 0.75rem;
-            font-weight: 600;
-            color: #6b7280;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            position: relative;
-        }
-        
-        .nav-item {
+
+        .benefit-item {
             display: flex;
             align-items: center;
-            padding: 1rem 2rem;
-            color: #a1a1aa;
-            text-decoration: none;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-            margin: 0.25rem 1rem;
-            border-radius: 12px;
-            font-weight: 500;
+            gap: 1rem;
+            color: #e5e7eb;
+            font-size: 1.1rem;
         }
-        
-        .nav-item::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 4px;
-            background: linear-gradient(135deg, #22c55e, #16a34a);
-            border-radius: 0 4px 4px 0;
-            transform: scaleY(0);
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        
-        .nav-item:hover::before,
-        .nav-item.active::before {
-            transform: scaleY(1);
-        }
-        
-        .nav-item:hover,
-        .nav-item.active {
-            color: #ffffff;
-            background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(34, 197, 94, 0.05) 100%);
-            border: 1px solid rgba(34, 197, 94, 0.2);
-            transform: translateX(4px);
-            box-shadow: 0 4px 20px rgba(34, 197, 94, 0.1);
-        }
-        
-        .nav-icon {
-            width: 24px;
-            height: 24px;
-            margin-right: 1rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1rem;
-            position: relative;
-        }
-        
-        .nav-text {
-            font-size: 0.95rem;
-            flex: 1;
-        }
-        
-        .nav-badge {
-            background: linear-gradient(135deg, #ef4444, #dc2626);
-            color: white;
-            font-size: 0.7rem;
-            font-weight: 600;
-            padding: 0.25rem 0.5rem;
-            border-radius: 6px;
-            min-width: 20px;
-            text-align: center;
-            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
-        }
-        
-        /* Sidebar Footer */
-        .sidebar-footer {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            padding: 2rem;
-            background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, transparent 100%);
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .user-profile {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            padding: 1rem;
-            background: rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
-            transition: all 0.3s ease;
-        }
-        
-        .user-profile:hover {
-            background: rgba(34, 197, 94, 0.1);
-            border-color: rgba(34, 197, 94, 0.3);
-        }
-        
-        .user-avatar {
+
+        .benefit-icon {
             width: 40px;
             height: 40px;
-            background: linear-gradient(135deg, #22c55e, #16a34a);
-            border-radius: 10px;
+            background: rgba(34, 197, 94, 0.2);
+            border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-weight: 700;
-            color: #ffffff;
-            font-size: 1rem;
-            box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
-        }
-        
-        .user-info {
-            flex: 1;
-        }
-        
-        .user-name {
-            font-weight: 600;
-            color: #ffffff;
-            font-size: 0.9rem;
-            line-height: 1.2;
-        }
-        
-        .user-role {
-            font-size: 0.75rem;
             color: #22c55e;
-            font-weight: 500;
-        }
-        
-        /* Main Content */
-        .main-content {
-            margin-left: 320px;
-            min-height: 100vh;
-            transition: margin-left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            background: 
-                radial-gradient(circle at 10% 20%, rgba(34, 197, 94, 0.03) 0%, transparent 50%),
-                radial-gradient(circle at 80% 80%, rgba(16, 185, 129, 0.02) 0%, transparent 50%),
-                radial-gradient(circle at 40% 40%, rgba(59, 130, 246, 0.01) 0%, transparent 50%);
-        }
-        
-        .main-content.expanded {
-            margin-left: 0;
-        }
-        
-        /* Enhanced Header */
-        .header {
-            position: sticky;
-            top: 0;
-            background: rgba(0, 0, 0, 0.95);
-            backdrop-filter: blur(20px);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            padding: 1.5rem 2.5rem;
-            z-index: 100;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-        }
-        
-        .header-content {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        
-        .menu-toggle {
-            display: none;
-            background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.05));
-            border: 1px solid rgba(34, 197, 94, 0.2);
-            color: #22c55e;
-            padding: 0.75rem;
-            border-radius: 12px;
             font-size: 1.1rem;
-            cursor: pointer;
-            transition: all 0.3s ease;
+            flex-shrink: 0;
         }
-        
-        .menu-toggle:hover {
-            background: rgba(34, 197, 94, 0.2);
-            transform: scale(1.05);
-        }
-        
-        .header-title {
-            font-size: 1.75rem;
-            font-weight: 700;
-            background: linear-gradient(135deg, #ffffff, #a1a1aa);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        
-        .header-actions {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-        
-        .notification-btn {
-            position: relative;
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.2);
-            color: #22c55e;
-            padding: 0.75rem;
-            border-radius: 12px;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
-        .notification-btn:hover {
-            background: rgba(34, 197, 94, 0.2);
-            transform: scale(1.05);
-        }
-        
-        .notification-badge {
-            position: absolute;
-            top: -4px;
-            right: -4px;
-            background: #ef4444;
-            color: white;
-            font-size: 0.6rem;
-            font-weight: 600;
-            padding: 0.2rem 0.4rem;
-            border-radius: 6px;
-            min-width: 16px;
-            text-align: center;
-        }
-        
-        /* Enhanced Stats Cards */
-        .dashboard-content {
-            padding: 2.5rem;
-        }
-        
-        .welcome-section {
-            margin-bottom: 3rem;
-        }
-        
-        .welcome-title {
-            font-size: 3rem;
-            font-weight: 800;
-            margin-bottom: 0.75rem;
-            background: linear-gradient(135deg, #ffffff 0%, #fff 50%, #fff 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            line-height: 1.2;
-        }
-        
-        .welcome-subtitle {
-            font-size: 1.25rem;
-            color: #6b7280;
-            font-weight: 400;
-        }
-        
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 2rem;
-            margin-bottom: 3rem;
-        }
-        
-        .stat-card {
-            background: linear-gradient(135deg, rgba(20, 20, 20, 0.8) 0%, rgba(10, 10, 10, 0.9) 100%);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 20px;
-            padding: 2.5rem;
-            position: relative;
-            overflow: hidden;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            backdrop-filter: blur(20px);
-        }
-        
-        .stat-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 4px;
-            background: linear-gradient(90deg, #22c55e, #16a34a, #22c55e);
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-        
-        .stat-card::after {
-            content: '';
-            position: absolute;
-            top: 50%;
-            right: -50px;
-            width: 200px;
-            height: 200px;
-            background: radial-gradient(circle, rgba(34, 197, 94, 0.1) 0%, transparent 70%);
-            transform: translateY(-50%);
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-        
-        .stat-card:hover::before,
-        .stat-card:hover::after {
-            opacity: 1;
-        }
-        
-        .stat-card:hover {
-            transform: translateY(-8px);
-            border-color: rgba(34, 197, 94, 0.3);
-            box-shadow: 
-                0 20px 60px rgba(0, 0, 0, 0.4),
-                0 0 40px rgba(34, 197, 94, 0.1);
-        }
-        
-        .stat-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 2rem;
-        }
-        
-        .stat-icon {
-            width: 64px;
-            height: 64px;
-            background: linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%);
-            border: 2px solid rgba(34, 197, 94, 0.3);
-            border-radius: 16px;
+
+        /* Right Section */
+        .right-section {
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #22c55e;
-            font-size: 1.5rem;
-            position: relative;
-            box-shadow: 0 8px 20px rgba(34, 197, 94, 0.2);
         }
-        
-        .stat-value {
-            font-size: 2.75rem;
-            font-weight: 800;
-            color: #ffffff;
-            margin-bottom: 0.5rem;
-            line-height: 1;
-        }
-        
-        .stat-label {
-            color: #a1a1aa;
-            font-size: 1rem;
-            font-weight: 500;
-        }
-        
-        .stat-trend {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.875rem;
-            font-weight: 600;
-            color: #22c55e;
-        }
-        
-        /* Enhanced Activity Cards */
-        .activity-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
-            gap: 2rem;
-        }
-        
-        .activity-card {
-            background: linear-gradient(135deg, rgba(20, 20, 20, 0.8) 0%, rgba(10, 10, 10, 0.9) 100%);
+
+        .cadastro-card {
+            background: rgba(20, 20, 20, 0.8);
             border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 20px;
-            padding: 2.5rem;
-            transition: all 0.3s ease;
+            border-radius: 24px;
+            padding: 3rem;
+            width: 100%;
+            max-width: 450px;
             backdrop-filter: blur(20px);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
             position: relative;
             overflow: hidden;
         }
-        
-        .activity-card::before {
+
+        .cadastro-card::before {
             content: '';
             position: absolute;
             top: 0;
             right: 0;
-            width: 100px;
-            height: 100px;
-            background: radial-gradient(circle, rgba(34, 197, 94, 0.1) 0%, transparent 70%);
-            opacity: 0;
-            transition: opacity 0.3s ease;
+            width: 150px;
+            height: 150px;
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), transparent);
+            border-radius: 50%;
+            transform: translate(50%, -50%);
         }
-        
-        .activity-card:hover::before {
-            opacity: 1;
+
+        .cadastro-header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+            position: relative;
+            z-index: 2;
         }
-        
-        .activity-card:hover {
-            border-color: rgba(34, 197, 94, 0.2);
-            transform: translateY(-4px);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-        }
-        
-        .activity-header {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            margin-bottom: 2rem;
-            padding-bottom: 1rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .activity-icon {
-            width: 48px;
-            height: 48px;
-            background: linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%);
-            border: 1px solid rgba(34, 197, 94, 0.3);
-            border-radius: 12px;
+
+        .cadastro-icon {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            border-radius: 16px;
+            margin: 0 auto 1.5rem;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #22c55e;
-            font-size: 1.125rem;
+            color: white;
+            font-size: 1.5rem;
+            box-shadow: 0 8px 24px rgba(34, 197, 94, 0.3);
         }
-        
-        .activity-title {
-            font-size: 1.25rem;
-            font-weight: 600;
-            color: #ffffff;
+
+        .cadastro-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 0.5rem;
         }
-        
-        .activity-item {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 1rem;
-            transition: all 0.3s ease;
+
+        .cadastro-subtitle {
+            color: #9ca3af;
+            font-size: 1rem;
+        }
+
+        /* Form Styles */
+        .cadastro-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            position: relative;
+            z-index: 2;
+        }
+
+        .form-group {
             position: relative;
         }
-        
-        .activity-item::before {
-            content: '';
+
+        .form-input {
+            width: 100%;
+            padding: 1rem 1rem 1rem 3rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            color: white;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #22c55e;
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1);
+        }
+
+        .form-input::placeholder {
+            color: #6b7280;
+        }
+
+        .input-icon {
             position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 3px;
-            background: linear-gradient(135deg, #22c55e, #16a34a);
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-        
-        .activity-item:hover::before {
-            opacity: 1;
-        }
-        
-        .activity-item:hover {
-            background: rgba(34, 197, 94, 0.05);
-            border-color: rgba(34, 197, 94, 0.2);
-            transform: translateX(4px);
-        }
-        
-        .activity-item:last-child {
-            margin-bottom: 0;
-        }
-        
-        .activity-item-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.75rem;
-        }
-        
-        .activity-name {
-            font-weight: 600;
-            color: #ffffff;
-            font-size: 1rem;
-        }
-        
-        .activity-value {
-            font-weight: 700;
-            color: #22c55e;
-            font-size: 1.1rem;
-        }
-        
-        .activity-meta {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.875rem;
+            left: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
             color: #6b7280;
+            font-size: 1rem;
+            transition: color 0.3s ease;
         }
-        
-        .activity-status {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.25rem;
-            padding: 0.25rem 0.75rem;
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.2);
-            border-radius: 6px;
-            font-size: 0.75rem;
-            font-weight: 500;
+
+        .form-group:focus-within .input-icon {
             color: #22c55e;
         }
-        
-        .status-dot {
-            width: 6px;
-            height: 6px;
+
+        /* Checkbox */
+        .checkbox-group {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            margin: 1rem 0;
+        }
+
+        .custom-checkbox {
+            width: 18px;
+            height: 18px;
             background: #22c55e;
-            border-radius: 50%;
+            border: 1px solid #22c55e;
+            border-radius: 4px;
+            cursor: pointer;
+            position: relative;
+            flex-shrink: 0;
+            margin-top: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
-        
-        .empty-state {
-            text-align: center;
-            padding: 4rem 2rem;
-            color: #6b7280;
+
+        .custom-checkbox input {
+            opacity: 0;
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+            margin: 0;
+            z-index: 2;
         }
-        
-        .empty-state i {
-            font-size: 3rem;
-            margin-bottom: 1rem;
-            opacity: 0.3;
-            color: #374151;
+
+        .custom-checkbox::after {
+            content: '✓';
+            color: white;
+            font-size: 11px;
+            font-weight: bold;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
         }
-        
-        .empty-state p {
-            font-size: 1rem;
-            font-weight: 500;
+
+        .custom-checkbox input:not(:checked) + .checkmark {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.2);
         }
-        
-        /* Mobile Styles */
-        @media (max-width: 1024px) {
-            .sidebar {
-                transform: translateX(-100%);
-                width: 300px;
-                z-index: 1001;
-            }
-            
-            .sidebar:not(.hidden) {
-                transform: translateX(0);
-            }
-            
-            .main-content {
-                margin-left: 0;
-            }
-            
-            .menu-toggle {
-                display: block;
-            }
-            
-            .header-actions span {
-                display: none !important;
-            }
-            
-            .stats-grid {
-                grid-template-columns: 1fr;
-                gap: 1.5rem;
-            }
-            
-            .activity-grid {
-                grid-template-columns: 1fr;
-            }
+
+        .custom-checkbox input:not(:checked) ~ .checkmark::after {
+            display: none;
         }
-        
-        @media (max-width: 768px) {
-            .header {
-                padding: 1rem;
-            }
-            
-            .dashboard-content {
-                padding: 1.5rem;
-            }
-            
-            .welcome-title {
-                font-size: 2.25rem;
-            }
-            
-            .stat-card,
-            .activity-card {
-                padding: 2rem;
-            }
-            
-            .sidebar {
-                width: 280px;
-            }
-        }
-        
-        @media (max-width: 480px) {
-            .welcome-title {
-                font-size: 1.875rem;
-            }
-            
-            .stat-value {
-                font-size: 2rem;
-            }
-            
-            .activity-item {
-                padding: 1.25rem;
-            }
-            
-            .activity-item-header {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 0.5rem;
-            }
-            
-            .sidebar {
-                width: 260px;
-            }
-        }
-        
-        /* Overlay for mobile */
-        .overlay {
-            position: fixed;
+
+        .checkmark {
+            position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0, 0, 0, 0.7);
-            z-index: 1000;
-            opacity: 0;
-            visibility: hidden;
+            border-radius: 4px;
             transition: all 0.3s ease;
-            backdrop-filter: blur(4px);
+            pointer-events: none;
         }
-        
-        .overlay.active {
-            opacity: 1;
-            visibility: visible;
+
+        .checkbox-label {
+            color: #9ca3af;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .checkbox-label a {
+            color: #22c55e;
+            text-decoration: none;
+        }
+
+        .checkbox-label a:hover {
+            text-decoration: underline;
+        }
+
+        /* Submit Button */
+        .submit-btn {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+            border: none;
+            padding: 1rem;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            box-shadow: 0 4px 20px rgba(34, 197, 94, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(34, 197, 94, 0.4);
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .submit-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .submit-btn:hover::before {
+            left: 100%;
+        }
+
+        /* Footer Links */
+        .form-footer {
+            text-align: center;
+            margin-top: 2rem;
+            position: relative;
+            z-index: 2;
+        }
+
+        .footer-text {
+            color: #6b7280;
+            margin-bottom: 1rem;
+        }
+
+        .footer-link {
+            color: #22c55e;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.3s ease;
+        }
+
+        .footer-link:hover {
+            color: #16a34a;
+            text-decoration: underline;
+        }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            margin: 1.5rem 0;
+            color: #6b7280;
+            font-size: 0.9rem;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .divider span {
+            padding: 0 1rem;
+        }
+
+        /* Floating Elements */
+        .floating-elements {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .floating-element {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background: rgba(34, 197, 94, 0.3);
+            border-radius: 50%;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        .floating-element:nth-child(1) {
+            top: 20%;
+            left: 10%;
+            animation-delay: 0s;
+        }
+
+        .floating-element:nth-child(2) {
+            top: 40%;
+            right: 15%;
+            animation-delay: 1s;
+        }
+
+        .floating-element:nth-child(3) {
+            bottom: 30%;
+            left: 20%;
+            animation-delay: 2s;
+        }
+
+        .floating-element:nth-child(4) {
+            bottom: 20%;
+            right: 25%;
+            animation-delay: 3s;
+        }
+
+        @keyframes float {
+            0%, 100% {
+                transform: translateY(0) rotate(0deg);
+                opacity: 0.3;
+            }
+            50% {
+                transform: translateY(-20px) rotate(180deg);
+                opacity: 0.8;
+            }
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .cadastro-container {
+                grid-template-columns: 1fr;
+                gap: 2rem;
+                max-width: 600px;
+            }
+
+            .brand-content {
+                display: none !important;
+            }
+            
+            .left-section {
+                order: 2;
+                text-align: center;
+            }
+            
+            .right-section {
+                order: 1;
+            }
+            
+            .brand-title {
+                font-size: 2.5rem;
+            }
+            
+            .benefits-list {
+                flex-direction: row;
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 1rem;
+            }
+            
+            .benefit-item {
+                font-size: 1rem;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .cadastro-section {
+                padding: 2rem 0;
+            }
+
+            .brand-content {
+                display: none !important;
+            }
+            
+            .cadastro-container {
+                padding: 0 1rem;
+            }
+            
+            .cadastro-card {
+                padding: 2rem;
+                border-radius: 20px;
+            }
+            
+            .brand-logo {
+                width: 80px;
+                height: 80px;
+                font-size: 2rem;
+            }
+            
+            .brand-title {
+                font-size: 2rem;
+            }
+            
+            .brand-subtitle {
+                font-size: 1.1rem;
+            }
+            
+            .benefits-list {
+                display: none;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .cadastro-card {
+                padding: 1.5rem;
+            }
+            
+            .form-input {
+                padding: 0.8rem 0.8rem 0.8rem 2.5rem;
+            }
+
+            .brand-content {
+                display: none !important;
+            }
+            
+            .input-icon {
+                left: 0.8rem;
+            }
+        }
+
+        /* Loading States */
+        .loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        .loading .submit-btn {
+            background: #6b7280;
+        }
+
+        /* Animations */
+        .fade-in {
+            animation: fadeIn 0.6s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
     </style>
 </head>
 <body>
-    <!-- Overlay for mobile -->
-    <div class="overlay" id="overlay"></div>
-    
-    <!-- Advanced Sidebar -->
-    <!-- Advanced Sidebar -->
-     <aside class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <a href="#" class="logo">
-                <div class="logo-icon">
-                    <i class="fas fa-bolt"></i>
-                </div>
-                <div class="logo-text">
-                    <div class="logo-title">Dashboard</div>
-                </div>
-            </a>
+    <?php include('../inc/header.php'); ?>
+
+    <section class="cadastro-section">
+        <!-- Floating Elements -->
+        <div class="floating-elements">
+            <div class="floating-element"></div>
+            <div class="floating-element"></div>
+            <div class="floating-element"></div>
+            <div class="floating-element"></div>
         </div>
-        
-       <nav class="nav-menu">
-            <div class="nav-section">
-                <div class="nav-section-title">Principal</div>
-                <a href="index.php" class="nav-item active">
-                    <div class="nav-icon"><i class="fas fa-chart-pie"></i></div>
-                    <div class="nav-text">Dashboard</div>
-                </a>
-            </div>
-            
-            <div class="nav-section">
-                <div class="nav-section-title">Gestão</div>
-                <a href="usuarios.php" class="nav-item">
-                    <div class="nav-icon"><i class="fas fa-user"></i></div>
-                    <div class="nav-text">Usuários</div>
-                </a>
-                <a href="afiliados.php" class="nav-item">
-                    <div class="nav-icon"><i class="fas fa-user-plus"></i></div>
-                    <div class="nav-text">Afiliados</div>
-                </a>
-                <a href="depositos.php" class="nav-item">
-                    <div class="nav-icon"><i class="fas fa-credit-card"></i></div>
-                    <div class="nav-text">Depósitos</div>
-                </a>
-                <a href="saques.php" class="nav-item">
-                    <div class="nav-icon"><i class="fas fa-money-bill-wave"></i></div>
-                    <div class="nav-text">Saques</div>
-                </a>
-            </div>
-            
-            <div class="nav-section">
-                <div class="nav-section-title">Sistema</div>
-                <a href="config.php" class="nav-item">
-                    <div class="nav-icon"><i class="fas fa-cogs"></i></div>
-                    <div class="nav-text">Configurações</div>
-                </a>
-                <a href="gateway.php" class="nav-item">
-                    <div class="nav-icon"><i class="fas fa-usd"></i></div>
-                    <div class="nav-text">Gateway</div>
-                </a>
-                <a href="banners.php" class="nav-item">
-                    <div class="nav-icon"><i class="fas fa-images"></i></div>
-                    <div class="nav-text">Banners</div>
-                </a>
-                <a href="cartelas.php" class="nav-item">
-                    <div class="nav-icon"><i class="fas fa-diamond"></i></div>
-                    <div class="nav-text">Raspadinhas</div>
-                </a>
-                <a href="../logout" class="nav-item">
-                    <div class="nav-icon"><i class="fas fa-sign-out-alt"></i></div>
-                    <div class="nav-text">Sair</div>
-                </a>
-            </div>
-        </nav>
-    </aside>
-    
-    <!-- Main Content -->
-    <main class="main-content" id="mainContent">
-        <!-- Enhanced Header -->
-        <header class="header">
-            <div class="header-content">
-                <div style="display: flex; align-items: center; gap: 1rem;">
-                    <button class="menu-toggle" id="menuToggle">
-                        <i class="fas fa-bars"></i>
-                    </button>
-                </div>
-                
-                <div class="header-actions">
-                    <span style="color: #a1a1aa; font-size: 0.9rem; display: none;">Bem-vindo, <?= htmlspecialchars($nome) ?></span>
-                    <div class="user-avatar">
-                        <?= strtoupper(substr($nome, 0, 1)) ?>
-                    </div>
-                </div>
-            </div>
-        </header>
-        
-        <!-- Dashboard Content -->
-        <div class="dashboard-content">
-            <!-- Welcome Section -->
-            <section class="welcome-section">
-                <h2 class="welcome-title">Olá, <?= htmlspecialchars($nome) ?>!</h2>
-                <p class="welcome-subtitle">Aqui está um resumo das principais métricas e atividades do sistema</p>
-            </section>
-            
-            <!-- Enhanced Stats Grid -->
-            <section class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-header">
-                        <div class="stat-icon">
-                            <i class="fas fa-users"></i>
-                        </div>
-                        <div class="stat-trend">
-                            <i class="fas fa-arrow-up"></i>
-                            <span>+12%</span>
-                        </div>
-                    </div>
-                    <div class="stat-value"><?= number_format($total_usuarios, 0, ',', '.') ?></div>
-                    <div class="stat-label">Total de Usuários Ativos</div>
-                </div>
-                
-                <div class="stat-card">
-                    <div class="stat-header">
-                        <div class="stat-icon">
-                            <i class="fas fa-chart-line"></i>
-                        </div>
-                        <div class="stat-trend">
-                            <i class="fas fa-arrow-up"></i>
-                            <span>+8%</span>
-                        </div>
-                    </div>
-                    <div class="stat-value"><?= number_format($total_depositos, 0, ',', '.') ?></div>
-                    <div class="stat-label">Depósitos Confirmados</div>
-                </div>
-                
-                <div class="stat-card">
-                    <div class="stat-header">
-                        <div class="stat-icon">
-                            <i class="fas fa-wallet"></i>
-                        </div>
-                        <div class="stat-trend">
-                            <i class="fas fa-arrow-up"></i>
-                            <span>+24%</span>
-                        </div>
-                    </div>
-                    <div class="stat-value">R$ <?= number_format($total_saldo, 2, ',', '.') ?></div>
-                    <div class="stat-label">Saldo Total em Carteiras</div>
-                </div>
-            </section>
-            
-            <!-- Enhanced Activity Section -->
-            <section class="activity-grid">
-                <!-- Recent Deposits -->
-                <div class="activity-card">
-                    <div class="activity-header">
-                        <div class="activity-icon">
-                            <i class="fas fa-money-bill-transfer"></i>
-                        </div>
-                        <h3 class="activity-title">Depósitos Recentes</h3>
-                    </div>
+
+        <div class="cadastro-container fade-in">
+            <!-- Left Section -->
+            <div class="left-section">
+                <div class="brand-content">
+                    <h1 class="brand-title">Comece a ganhar hoje!</h1>
+                    <p class="brand-subtitle">
+                        Junte-se a milhares de usuários que já estão ganhando 
+                        <span class="highlight-text">prêmios incríveis</span> 
+                        com a RaspaGreen!
+                    </p>
                     
-                    <?php if (!empty($depositos_recentes)): ?>
-                        <?php foreach ($depositos_recentes as $deposito): ?>
-                            <div class="activity-item">
-                                <div class="activity-item-header">
-                                    <span class="activity-name"><?= htmlspecialchars($deposito['nome']) ?></span>
-                                    <span class="activity-value">R$ <?= number_format($deposito['valor'], 2, ',', '.') ?></span>
-                                </div>
-                                <div class="activity-meta">
-                                    <div class="activity-status">
-                                        <div class="status-dot"></div>
-                                        <span>Confirmado</span>
-                                    </div>
-                                    <span><?= date('d/m/Y H:i', strtotime($deposito['updated_at'])) ?></span>
-                                </div>
+                    <div class="benefits-list">
+                        <div class="benefit-item">
+                            <div class="benefit-icon">
+                                <i class="bi bi-gift"></i>
                             </div>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        <div class="empty-state">
-                            <i class="fas fa-inbox"></i>
-                            <p>Nenhum depósito confirmado recentemente</p>
+                            <span>Prêmios de até R$ 15.000</span>
                         </div>
-                    <?php endif; ?>
-                </div>
-                
-                <!-- Pending Withdrawals -->
-                <div class="activity-card">
-                    <div class="activity-header">
-                        <div class="activity-icon">
-                            <i class="fas fa-money-bill-wave"></i>
+                        <div class="benefit-item">
+                            <div class="benefit-icon">
+                                <i class="bi bi-lightning-charge"></i>
+                            </div>
+                            <span>PIX instantâneo</span>
                         </div>
-                        <h3 class="activity-title">Saques Pendentes</h3>
+                        <div class="benefit-item">
+                            <div class="benefit-icon">
+                                <i class="bi bi-shield-check"></i>
+                            </div>
+                            <span>Plataforma 100% segura</span>
+                        </div>
+                        <div class="benefit-item">
+                            <div class="benefit-icon">
+                                <i class="bi bi-clock"></i>
+                            </div>
+                            <span>Disponível 24/7</span>
+                        </div>
                     </div>
-                    
-                    <?php if (!empty($saques_recentes)): ?>
-                        <?php foreach ($saques_recentes as $saque): ?>
-                            <div class="activity-item">
-                                <div class="activity-item-header">
-                                    <span class="activity-name"><?= htmlspecialchars($saque['nome']) ?></span>
-                                    <span class="activity-value">R$ <?= number_format($saque['valor'], 2, ',', '.') ?></span>
-                                </div>
-                                <div class="activity-meta">
-                                    <div class="activity-status" style="background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.2); color: #f59e0b;">
-                                        <div class="status-dot" style="background: #f59e0b;"></div>
-                                        <span>Pendente</span>
-                                    </div>
-                                    <span><?= date('d/m/Y H:i', strtotime($saque['updated_at'])) ?></span>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        <div class="empty-state">
-                            <i class="fas fa-check-circle"></i>
-                            <p>Nenhum saque pendente no momento</p>
-                        </div>
-                    <?php endif; ?>
                 </div>
-            </section>
+            </div>
+
+            <!-- Right Section -->
+            <div class="right-section">
+                <div class="cadastro-card">
+                    <div class="cadastro-header">
+                        <div class="cadastro-icon">
+                            <i class="bi bi-person-plus"></i>
+                        </div>
+                        <h2 class="cadastro-title">Cadastre-se</h2>
+                        <p class="cadastro-subtitle">
+                            Crie sua conta grátis em menos de 1 minuto
+                        </p>
+                    </div>
+
+                    <form id="cadastroForm" method="POST" class="cadastro-form">
+                        <input id="ref" name="ref" type="hidden" value="">
+                        
+                        <div class="form-group">
+                            <div class="input-icon">
+                                <i class="bi bi-person"></i>
+                            </div>
+                            <input type="text" name="nome" class="form-input" placeholder="Nome completo" required>
+                        </div>
+
+                        <div class="form-group">
+                            <div class="input-icon">
+                                <i class="bi bi-telephone"></i>
+                            </div>
+                            <input type="text" id="telefone" name="telefone" class="form-input" placeholder="(11) 99999-9999" required>
+                        </div>
+
+                        <div class="form-group">
+                            <div class="input-icon">
+                                <i class="bi bi-envelope"></i>
+                            </div>
+                            <input type="email" name="email" class="form-input" placeholder="seu@email.com" required>
+                        </div>
+
+                        <div class="form-group">
+                            <div class="input-icon">
+                                <i class="bi bi-lock"></i>
+                            </div>
+                            <input type="password" name="senha" class="form-input" placeholder="Senha segura" required>
+                        </div>
+
+                        <div class="checkbox-group">
+                            <div class="custom-checkbox">
+                                <input id="aceiteTermos" name="aceiteTermos" type="checkbox" checked required>
+                                <div class="checkmark"></div>
+                            </div>
+                            <label for="aceiteTermos" class="checkbox-label">
+                                Li e aceito os <a href="/politica" target="_blank">termos e políticas de privacidade</a>
+                            </label>
+                        </div>
+
+                        <button type="submit" class="submit-btn" id="submitBtn">
+                            <i class="bi bi-check-circle"></i>
+                            Criar Conta Grátis
+                        </button>
+                    </form>
+
+                    <div class="form-footer">
+                        <div class="divider">
+                            <span>ou</span>
+                        </div>
+                        
+                        <p class="footer-text">
+                            Já tem uma conta?
+                        </p>
+                        <a href="/login" class="footer-link">
+                            Faça login
+                        </a>
+                    </div>
+                </div>
+            </div>
         </div>
-    </main>
-    
+    </section>
+
+    <?php include('../inc/footer.php'); ?>
+
     <script>
-        // Mobile menu toggle with smooth animations
-        const menuToggle = document.getElementById('menuToggle');
-        const sidebar = document.getElementById('sidebar');
-        const mainContent = document.getElementById('mainContent');
-        const overlay = document.getElementById('overlay');
-        
-        menuToggle.addEventListener('click', () => {
-            const isHidden = sidebar.classList.contains('hidden');
-            
-            if (isHidden) {
-                sidebar.classList.remove('hidden');
-                overlay.classList.add('active');
+        document.addEventListener('DOMContentLoaded', function() {
+            // Ref parameter handling
+            function getRefParam() {
+                const urlParams = new URLSearchParams(window.location.search);
+                return urlParams.get('ref');
+            }
+
+            const refParam = getRefParam();
+            if (refParam) {
+                localStorage.setItem('ref', refParam);
+            }
+
+            const params = new URLSearchParams(window.location.search);
+            let refValue = params.get('ref');
+
+            if (!refValue) {
+                refValue = localStorage.getItem('ref') || '';
             } else {
-                sidebar.classList.add('hidden');
-                overlay.classList.remove('active');
+                localStorage.setItem('ref', refValue);
             }
-        });
-        
-        overlay.addEventListener('click', () => {
-            sidebar.classList.add('hidden');
-            overlay.classList.remove('active');
-        });
-        
-        // Close sidebar on window resize if it's mobile
-        window.addEventListener('resize', () => {
-            if (window.innerWidth <= 1024) {
-                sidebar.classList.add('hidden');
-                overlay.classList.remove('active');
-            } else {
-                sidebar.classList.remove('hidden');
-                overlay.classList.remove('active');
-            }
-        });
-        
-        // Enhanced hover effects for nav items
-        document.querySelectorAll('.nav-item').forEach(item => {
-            item.addEventListener('mouseenter', function() {
-                this.style.transform = 'translateX(8px)';
-            });
-            
-            item.addEventListener('mouseleave', function() {
-                if (!this.classList.contains('active')) {
-                    this.style.transform = 'translateX(0)';
+
+            const refInput = document.getElementById('ref');
+            if (refInput) refInput.value = refValue;
+
+            // Phone mask
+            const telefoneInput = document.getElementById('telefone');
+            telefoneInput.addEventListener('input', function(e) {
+                let value = e.target.value.replace(/\D/g, '');
+                if (value.length > 11) value = value.slice(0, 11);
+
+                let formatted = '';
+                if (value.length > 0) {
+                    formatted += '(' + value.substring(0, 2);
                 }
-            });
-        });
-        
-        // Smooth scroll behavior
-        document.documentElement.style.scrollBehavior = 'smooth';
-        
-        // Add loading animation on page load
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log('%c⚡ Dashboard Admin Pro carregado!', 'color: #22c55e; font-size: 16px; font-weight: bold;');
-            
-            // Check if mobile on load
-            if (window.innerWidth <= 1024) {
-                sidebar.classList.add('hidden');
-            }
-            
-            // Animate stats cards on load
-            const statCards = document.querySelectorAll('.stat-card');
-            statCards.forEach((card, index) => {
-                card.style.opacity = '0';
-                card.style.transform = 'translateY(20px)';
-                setTimeout(() => {
-                    card.style.transition = 'all 0.6s ease';
-                    card.style.opacity = '1';
-                    card.style.transform = 'translateY(0)';
-                }, index * 150);
-            });
-            
-            // Animate activity cards
-            const activityCards = document.querySelectorAll('.activity-card');
-            activityCards.forEach((card, index) => {
-                card.style.opacity = '0';
-                card.style.transform = 'translateY(20px)';
-                setTimeout(() => {
-                    card.style.transition = 'all 0.6s ease';
-                    card.style.opacity = '1';
-                    card.style.transform = 'translateY(0)';
-                }, (statCards.length * 150) + (index * 200));
-            });
-        });
-        
-        // Add click ripple effect to cards
-        document.querySelectorAll('.stat-card, .activity-card').forEach(card => {
-            card.addEventListener('click', function(e) {
-                const ripple = document.createElement('div');
-                const rect = this.getBoundingClientRect();
-                const size = 60;
-                const x = e.clientX - rect.left - size / 2;
-                const y = e.clientY - rect.top - size / 2;
-                
-                ripple.style.width = ripple.style.height = size + 'px';
-                ripple.style.left = x + 'px';
-                ripple.style.top = y + 'px';
-                ripple.style.position = 'absolute';
-                ripple.style.background = 'rgba(34, 197, 94, 0.3)';
-                ripple.style.borderRadius = '50%';
-                ripple.style.transform = 'scale(0)';
-                ripple.style.animation = 'ripple 0.6s linear';
-                ripple.style.pointerEvents = 'none';
-                
-                this.style.position = 'relative';
-                this.style.overflow = 'hidden';
-                this.appendChild(ripple);
-                
-                setTimeout(() => {
-                    ripple.remove();
-                }, 600);
-            });
-        });
-        
-        // Add CSS animation for ripple effect
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes ripple {
-                to {
-                    transform: scale(4);
-                    opacity: 0;
+                if (value.length >= 3) {
+                    formatted += ') ' + value.substring(2, 7);
                 }
+                if (value.length >= 8) {
+                    formatted += '-' + value.substring(7);
+                }
+                e.target.value = formatted;
+            });
+
+            // Form submission
+            const cadastroForm = document.getElementById('cadastroForm');
+            const submitBtn = document.getElementById('submitBtn');
+
+            cadastroForm.addEventListener('submit', function(e) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="bi bi-arrow-repeat" style="animation: spin 1s linear infinite;"></i> Criando conta...';
+                cadastroForm.classList.add('loading');
+            });
+
+            // Add spin animation
+            const style = document.createElement('style');
+            style.textContent = `
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            `;
+            document.head.appendChild(style);
+
+            // Focus enhancements
+            const inputs = document.querySelectorAll('.form-input');
+            inputs.forEach(input => {
+                input.addEventListener('focus', function() {
+                    this.parentElement.style.transform = 'translateY(-2px)';
+                });
+                
+                input.addEventListener('blur', function() {
+                    this.parentElement.style.transform = 'translateY(0)';
+                });
+            });
+        });
+
+        // Notiflix configuration
+        Notiflix.Notify.init({
+            width: '300px',
+            position: 'right-top',
+            distance: '20px',
+            opacity: 1,
+            borderRadius: '12px',
+            timeout: 4000,
+            success: {
+                background: '#22c55e',
+                textColor: '#fff',
+            },
+            failure: {
+                background: '#ef4444',
+                textColor: '#fff',
+            },
+            warning: {
+                background: '#f59e0b',
+                textColor: '#fff',
             }
-        `;
-        document.head.appendChild(style);
+        });
+
+        // Show messages if any
+        <?php if (isset($_SESSION['message'])): ?>
+            Notiflix.Notify.<?php echo $_SESSION['message']['type']; ?>('<?php echo $_SESSION['message']['text']; ?>');
+            <?php unset($_SESSION['message']); ?>
+        <?php endif; ?>
+
+        console.log('%c🎯 RaspaGreen - Cadastro Split Screen', 'color: #22c55e; font-size: 16px; font-weight: bold;');
     </script>
 </body>
 </html>
