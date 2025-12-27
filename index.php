@@ -18,91 +18,47 @@ if (!isset($_SESSION['usuario_id'])) {
 $usuario_id = $_SESSION['usuario_id'];
 
 try {
-    $stmt = $pdo->prepare("SELECT * FROM usuarios WHERE id = :id LIMIT 1");
-    $stmt->bindParam(':id', $usuario_id, PDO::PARAM_INT);
-    $stmt->execute();
-    $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$usuario) {
-        $_SESSION['message'] = ['type' => 'failure', 'text' => 'Usuário não encontrado!'];
-        header("Location: /login");
-        exit;
-    }
-
-    $stmt_depositos = $pdo->prepare("SELECT SUM(valor) as total_depositado FROM depositos WHERE user_id = :user_id AND status = 'PAID'");
+    $stmt_depositos = $pdo->prepare("SELECT 
+                                    created_at, 
+                                    updated_at, 
+                                    cpf, 
+                                    valor, 
+                                    status 
+                                    FROM depositos 
+                                    WHERE user_id = :user_id
+                                    ORDER BY created_at DESC");
     $stmt_depositos->bindParam(':user_id', $usuario_id, PDO::PARAM_INT);
     $stmt_depositos->execute();
-    $total_depositado = $stmt_depositos->fetch(PDO::FETCH_ASSOC)['total_depositado'] ?? 0;
+    $depositos = $stmt_depositos->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    $depositos = [];
+    $_SESSION['message'] = ['type' => 'failure', 'text' => 'Erro ao carregar depósitos'];
+}
 
-    $stmt_saques = $pdo->prepare("SELECT SUM(valor) as total_sacado FROM saques WHERE user_id = :user_id AND status = 'PAID'");
+try {
+    $stmt_saques = $pdo->prepare("SELECT 
+                                created_at, 
+                                updated_at, 
+                                cpf, 
+                                valor, 
+                                status 
+                                FROM saques 
+                                WHERE user_id = :user_id
+                                ORDER BY created_at DESC");
     $stmt_saques->bindParam(':user_id', $usuario_id, PDO::PARAM_INT);
     $stmt_saques->execute();
-    $total_sacado = $stmt_saques->fetch(PDO::FETCH_ASSOC)['total_sacado'] ?? 0;
-
+    $saques = $stmt_saques->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
-    $_SESSION['message'] = ['type' => 'failure', 'text' => 'Erro ao carregar dados do usuário!'];
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $senha_atual = $_POST['senha_atual'] ?? '';
-    $nome = trim($_POST['nome'] ?? '');
-    $telefone = trim($_POST['telefone'] ?? '');
-    $email = trim($_POST['email'] ?? '');
-    $nova_senha = $_POST['nova_senha'] ?? '';
-    $confirmar_senha = $_POST['confirmar_senha'] ?? '';
-
-    if (!password_verify($senha_atual, $usuario['senha'])) {
-        $_SESSION['message'] = ['type' => 'failure', 'text' => 'Senha atual incorreta!'];
-    } else {
-        try {
-            $dados = [
-                'id' => $usuario_id,
-                'nome' => $nome,
-                'telefone' => $telefone,
-                'email' => $email
-            ];
-
-            if (!empty($nova_senha)) {
-                if ($nova_senha === $confirmar_senha) {
-                    $dados['senha'] = password_hash($nova_senha, PASSWORD_BCRYPT);
-                } else {
-                    $_SESSION['message'] = ['type' => 'failure', 'text' => 'As novas senhas não coincidem!'];
-                    header("Location: /perfil");
-                    exit;
-                }
-            }
-
-            $setParts = [];
-            foreach ($dados as $key => $value) {
-                if ($key !== 'id') {
-                    $setParts[] = "$key = :$key";
-                }
-            }
-
-            $query = "UPDATE usuarios SET " . implode(', ', $setParts) . " WHERE id = :id";
-            $stmt = $pdo->prepare($query);
-
-            if ($stmt->execute($dados)) {
-                $_SESSION['message'] = ['type' => 'success', 'text' => 'Perfil atualizado com sucesso!'];
-                header("Location: /perfil");
-                exit;
-            } else {
-                $_SESSION['message'] = ['type' => 'failure', 'text' => 'Erro ao atualizar perfil!'];
-            }
-
-        } catch (PDOException $e) {
-            $_SESSION['message'] = ['type' => 'failure', 'text' => 'Erro ao atualizar perfil: ' . $e->getMessage()];
-        }
-    }
+    $saques = [];
+    $_SESSION['message'] = ['type' => 'failure', 'text' => 'Erro ao carregar saques'];
 }
 ?>
-
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-br">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $nomeSite;?> - Meu Perfil</title>
+    <title><?php echo $nomeSite;?> - Minhas Transações</title>
     
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -121,904 +77,572 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <style>
         /* Page Styles */
-        .perfil-section {
+        .transactions-section {
             margin-top: 100px;
             padding: 4rem 0;
             background: #0a0a0a;
             min-height: calc(100vh - 200px);
         }
 
-        .perfil-container {
-            max-width: 900px;
+        .transactions-container {
+            max-width: 850px;
             margin: 0 auto;
             padding: 0 2rem;
         }
 
-        /* Header */
-        .page-header {
-            text-align: center;
-            margin-bottom: 3rem;
-        }
-
-        .page-title {
-            font-size: 2.5rem;
-            font-weight: 900;
-            color: white;
-            margin-bottom: 1rem;
-            background: linear-gradient(135deg, #ffffff, #9ca3af);
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .page-subtitle {
-            font-size: 1.1rem;
-            color: #6b7280;
-            max-width: 500px;
-            margin: 0 auto;
-        }
-
-        /* User Avatar */
-        .user-avatar {
-            width: 100px;
-            height: 100px;
-            background: linear-gradient(135deg, #22c55e, #16a34a);
-            border-radius: 50%;
-            margin: 0 auto 2rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 2.5rem;
-            font-weight: 800;
-            box-shadow: 0 8px 32px rgba(34, 197, 94, 0.3);
-            position: relative;
-        }
-
-        .user-avatar::after {
-            content: '';
-            position: absolute;
-            inset: -4px;
-            background: linear-gradient(135deg, #22c55e, #16a34a);
-            border-radius: 50%;
-            z-index: -1;
-            opacity: 0.3;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); opacity: 0.3; }
-            50% { transform: scale(1.1); opacity: 0.1; }
-        }
-
-        /* Stats Cards */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 3rem;
-        }
-
-/* Ajustes específicos para os cards de estatísticas */
-
-.stat-card {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 20px;
-    padding: 2rem;
-    position: relative;
-    overflow: hidden;
-    transition: all 0.3s ease;
-    min-height: 140px;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-}
-
-.stat-card:hover {
-    transform: translateY(-4px);
-    border-color: rgba(34, 197, 94, 0.3);
-    box-shadow: 0 10px 40px rgba(34, 197, 94, 0.1);
-}
-
-.stat-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 4px;
-    height: 100%;
-    background: var(--accent-color);
-}
-
-.stat-card.saldo::before { 
-    background: linear-gradient(180deg, #22c55e, #16a34a); 
-}
-
-.stat-card.depositos::before { 
-    background: linear-gradient(180deg, #3b82f6, #2563eb); 
-}
-
-.stat-card.saques::before { 
-    background: linear-gradient(180deg, #f59e0b, #d97706); 
-}
-
-.stat-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    margin-bottom: 0.5rem;
-    gap: 1.25rem;
-}
-
-.stat-info {
-    flex: 1;
-    min-width: 0;
-}
-
-.stat-info h3 {
-    color: #9ca3af;
-    font-size: 0.8rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-bottom: 1rem;
-    line-height: 1.2;
-}
-
-.stat-value {
-    font-size: 2rem;
-    font-weight: 900;
-    color: white;
-    line-height: 1.1;
-    margin-bottom: 0.5rem;
-}
-
-.stat-icon {
-    width: 52px;
-    height: 52px;
-    border-radius: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.3rem;
-    flex-shrink: 0;
-    margin-top: 0.25rem;
-}
-
-.stat-icon.saldo { 
-    background: rgba(34, 197, 94, 0.15); 
-    color: #22c55e;
-    border: 1px solid rgba(34, 197, 94, 0.2);
-}
-
-.stat-icon.depositos { 
-    background: rgba(59, 130, 246, 0.15); 
-    color: #3b82f6;
-    border: 1px solid rgba(59, 130, 246, 0.2);
-}
-
-.stat-icon.saques { 
-    background: rgba(245, 158, 11, 0.15); 
-    color: #f59e0b;
-    border: 1px solid rgba(245, 158, 11, 0.2);
-}
-
-.stat-footer {
-    color: #6b7280;
-    font-size: 0.8rem;
-    margin-top: auto;
-    padding-top: 0.75rem;
-}
-
-/* Ajustes responsivos melhorados */
-@media (max-width: 768px) {
-    .stat-card {
-        padding: 1.75rem;
-        min-height: 120px;
-    }
-    
-    .stat-header {
-        gap: 1rem;
-        margin-bottom: 0.25rem;
-    }
-    
-    .stat-info h3 {
-        font-size: 0.75rem;
-        margin-bottom: 0.75rem;
-    }
-    
-    .stat-value {
-        font-size: 1.7rem;
-        margin-bottom: 0.25rem;
-    }
-    
-    .stat-icon {
-        width: 48px;
-        height: 48px;
-        font-size: 1.2rem;
-    }
-    
-    .stat-footer {
-        font-size: 0.75rem;
-        padding-top: 0.5rem;
-    }
-}
-
-@media (max-width: 480px) {
-    .stat-card {
-        padding: 1.5rem;
-        min-height: 110px;
-    }
-    
-    .stat-header {
-        gap: 0.75rem;
-    }
-    
-    .stat-value {
-        font-size: 1.5rem;
-    }
-    
-    .stat-icon {
-        width: 44px;
-        height: 44px;
-        font-size: 1.1rem;
-        margin-top: 0;
-    }
-}
-
-/* Melhorias no grid das estatísticas */
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 1.5rem;
-    margin-bottom: 3rem;
-}
-
-@media (max-width: 900px) {
-    .stats-grid {
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 1.25rem;
-    }
-}
-
-@media (max-width: 768px) {
-    .stats-grid {
-        grid-template-columns: 1fr;
-        gap: 1rem;
-    }
-}
-
-/* Animações melhoradas */
-.stat-card {
-    opacity: 0;
-    animation: slideInUp 0.6s ease-out forwards;
-}
-
-.stat-card:nth-child(1) { animation-delay: 0.1s; }
-.stat-card:nth-child(2) { animation-delay: 0.2s; }
-.stat-card:nth-child(3) { animation-delay: 0.3s; }
-
-@keyframes slideInUp {
-    from {
-        opacity: 0;
-        transform: translateY(30px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-        /* Main Form Card */
-        .form-card {
-            background: rgba(20, 20, 20, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+        /* Header Card */
+        .header-card {
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(16, 163, 74, 0.05));
+            border: 1px solid rgba(34, 197, 94, 0.2);
             border-radius: 24px;
-            padding: 3rem;
-            backdrop-filter: blur(20px);
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            padding: 2rem;
+            margin-bottom: 3rem;
             position: relative;
             overflow: hidden;
         }
 
-        .form-card::before {
+        .header-card::before {
             content: '';
             position: absolute;
-            top: 0;
-            right: 0;
+            top: -50%;
+            right: -50%;
+            width: 200px;
+            height: 200px;
+            background: linear-gradient(45deg, rgba(34, 197, 94, 0.1), transparent);
+            border-radius: 50%;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        .header-card::after {
+            content: '';
+            position: absolute;
+            bottom: -50%;
+            left: -50%;
             width: 150px;
             height: 150px;
-            background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), transparent);
+            background: linear-gradient(45deg, rgba(34, 197, 94, 0.05), transparent);
             border-radius: 50%;
-            transform: translate(50%, -50%);
+            animation: float 8s ease-in-out infinite reverse;
         }
 
-        .form-header {
-            text-align: center;
-            margin-bottom: 3rem;
-            position: relative;
-            z-index: 2;
+        @keyframes float {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-20px) rotate(180deg); }
         }
 
-        .form-icon {
-            width: 60px;
-            height: 60px;
-            background: linear-gradient(135deg, #22c55e, #16a34a);
-            border-radius: 16px;
+        .header-icon {
+            width: 80px;
+            height: 80px;
             margin: 0 auto 1.5rem;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
-            font-size: 1.5rem;
-            box-shadow: 0 8px 24px rgba(34, 197, 94, 0.3);
-        }
-
-        .form-title {
-            font-size: 1.8rem;
-            font-weight: 700;
-            color: white;
-            margin-bottom: 0.5rem;
-        }
-
-        .form-description {
-            color: #9ca3af;
-            font-size: 1rem;
-        }
-
-        /* Form Styles */
-        .form-grid {
-            display: flex;
-            flex-direction: column;
-            gap: 1.5rem;
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(16, 163, 74, 0.1));
+            border-radius: 50%;
+            border: 1px solid rgba(34, 197, 94, 0.3);
             position: relative;
             z-index: 2;
         }
 
-        .form-group {
-            position: relative;
+        .header-icon i {
+            font-size: 2rem;
+            color: #22c55e;
         }
 
-        .form-input {
-            width: 100%;
-            padding: 1rem 1rem 1rem 3rem;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
+        .header-title {
             color: white;
-            font-size: 1rem;
-            transition: all 0.3s ease;
-        }
-
-        .form-input:focus {
-            outline: none;
-            border-color: #22c55e;
-            background: rgba(255, 255, 255, 0.08);
-            box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1);
-        }
-
-        .form-input::placeholder {
-            color: #6b7280;
-        }
-
-        .input-icon {
-            position: absolute;
-            left: 1rem;
-            top: 50%;
-            transform: translateY(-50%);
-            color: #6b7280;
-            font-size: 1rem;
-            transition: color 0.3s ease;
-        }
-
-        .form-group:focus-within .input-icon {
-            color: #22c55e;
-        }
-
-        /* Password Toggle */
-        .password-toggle {
-            background: none;
-            border: none;
-            color: #22c55e;
-            cursor: pointer;
-            padding: 0.5rem 0;
-            font-size: 0.9rem;
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            transition: color 0.3s ease;
-            margin: 1rem 0;
-        }
-
-        .password-toggle:hover {
-            color: #16a34a;
-        }
-
-        .password-fields {
-            display: none;
-            flex-direction: column;
-            gap: 1.5rem;
-            margin: 1.5rem 0;
-            padding: 1.5rem;
-            background: rgba(34, 197, 94, 0.05);
-            border: 1px solid rgba(34, 197, 94, 0.1);
-            border-radius: 16px;
-        }
-
-        .password-fields.active {
-            display: flex;
-        }
-
-        .password-fields-title {
-            color: #22c55e;
-            font-weight: 600;
-            font-size: 0.9rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
+            font-size: 2.5rem;
+            font-weight: 900;
+            text-align: center;
             margin-bottom: 1rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
+            position: relative;
+            z-index: 2;
         }
 
-        /* Submit Button */
-        .submit-btn {
-            background: linear-gradient(135deg, #22c55e, #16a34a);
-            color: white;
+        .header-subtitle {
+            color: #e5e7eb;
+            font-size: 1.1rem;
+            text-align: center;
+            opacity: 0.8;
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Tabs */
+        .tabs-container {
+            background: rgba(20, 20, 20, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 2rem;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .tabs-header {
+            display: flex;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 16px;
+            padding: 0.5rem;
+            margin-bottom: 2rem;
+            border: 1px solid rgba(34, 197, 94, 0.2);
+        }
+
+        .tab-button {
+            flex: 1;
+            background: transparent;
             border: none;
-            padding: 1rem 2rem;
+            color: #9ca3af;
+            font-size: 1.1rem;
+            font-weight: 600;
+            padding: 1rem 1.5rem;
             border-radius: 12px;
-            font-size: 1rem;
-            font-weight: 700;
             cursor: pointer;
             transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 0.5rem;
-            box-shadow: 0 4px 20px rgba(34, 197, 94, 0.3);
-            margin-top: 1rem;
         }
 
-        .submit-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 30px rgba(34, 197, 94, 0.4);
+        .tab-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(34, 197, 94, 0.1), transparent);
+            transition: left 0.5s ease;
         }
 
-        .submit-btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
+        .tab-button:hover::before {
+            left: 100%;
         }
 
-        /* Success Message */
-        .success-message {
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.3);
-            border-radius: 12px;
-            padding: 1rem;
-            color: #22c55e;
-            text-align: center;
-            margin-bottom: 2rem;
+        .tab-button.active {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+            box-shadow: 0 4px 16px rgba(34, 197, 94, 0.3);
+        }
+
+        .tab-button.active::before {
             display: none;
         }
 
-        .success-message.active {
+        /* Content Area */
+        .transactions-content {
+            display: none;
+        }
+
+        .transactions-content.active {
             display: block;
-            animation: slideIn 0.3s ease-out;
         }
 
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: #9ca3af;
         }
 
-        /* Security Tips */
-        .security-tips {
-            background: rgba(59, 130, 246, 0.05);
-            border: 1px solid rgba(59, 130, 246, 0.1);
+        .empty-state i {
+            font-size: 4rem;
+            color: #22c55e;
+            margin-bottom: 1.5rem;
+            opacity: 0.7;
+        }
+
+        .empty-state h3 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+            color: #e5e7eb;
+        }
+
+        .empty-state p {
+            font-size: 1rem;
+            opacity: 0.8;
+        }
+
+        /* Transaction Items */
+        .transaction-item {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(34, 197, 94, 0.1);
             border-radius: 16px;
             padding: 1.5rem;
-            margin-top: 2rem;
-        }
-
-        .security-title {
-            color: #3b82f6;
-            font-weight: 600;
-            font-size: 0.9rem;
             margin-bottom: 1rem;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .transaction-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .transaction-item:hover {
+            border-color: rgba(34, 197, 94, 0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .transaction-item:hover::before {
+            opacity: 1;
+        }
+
+        /* Desktop Layout */
+        .transaction-header {
+            display: none;
+            grid-template-columns: 3fr 2fr 2fr 1.5fr;
+            gap: 1rem;
+            padding: 1rem 1.5rem;
+            background: rgba(34, 197, 94, 0.1);
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            font-weight: 600;
+            color: #22c55e;
+            font-size: 0.9rem;
+        }
+
+        .transaction-row {
+            display: grid;
+            grid-template-columns: 3fr 2fr 2fr 1.5fr;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .transaction-date {
             display: flex;
             align-items: center;
             gap: 0.5rem;
+            color: #e5e7eb;
         }
 
-        .security-list {
-            list-style: none;
-            padding: 0;
+        .transaction-date i {
+            color: #22c55e;
+            font-size: 0.9rem;
         }
 
-        .security-list li {
+        .transaction-cpf {
             color: #9ca3af;
-            font-size: 0.85rem;
-            margin-bottom: 0.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
+            font-family: 'Courier New', monospace;
+            cursor: pointer;
+            transition: color 0.3s ease;
         }
 
-        .security-list i {
-            color: #3b82f6;
-            font-size: 0.75rem;
+        .transaction-cpf:hover {
+            color: #22c55e;
+        }
+
+        .transaction-amount {
+            font-weight: 700;
+            color: #22c55e;
+            font-size: 1.1rem;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 25px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            justify-self: end;
+        }
+
+        .status-badge.approved {
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(16, 163, 74, 0.1));
+            color: #22c55e;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+
+        .status-badge.pending {
+            background: linear-gradient(135deg, rgba(251, 191, 36, 0.2), rgba(245, 158, 11, 0.1));
+            color: #fbbf24;
+            border: 1px solid rgba(251, 191, 36, 0.3);
+        }
+
+        /* Mobile Layout */
+        .transaction-mobile {
+            display: block;
+        }
+
+        .transaction-mobile-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .transaction-mobile-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         /* Responsive */
+        @media (min-width: 768px) {
+            .transaction-header {
+                display: grid;
+            }
+            
+            .transaction-mobile {
+                display: none;
+            }
+            
+            .transaction-row {
+                display: grid;
+            }
+        }
+
         @media (max-width: 768px) {
-            .perfil-container {
+            .transactions-container {
                 padding: 0 1rem;
             }
             
-            .page-title {
+            .header-title {
                 font-size: 2rem;
             }
             
-            .form-card {
-                padding: 2rem 1.5rem;
-                border-radius: 20px;
-            }
-            
-            .stats-grid {
-                grid-template-columns: 1fr;
-                gap: 1rem;
-            }
-            
-            .stat-card {
+            .tabs-container {
                 padding: 1.5rem;
             }
             
-            .stat-header {
-                align-items: flex-start;
-                gap: 0.75rem;
-            }
-            
-            .stat-value {
-                font-size: 1.5rem;
-                line-height: 1.3;
-            }
-            
-            .stat-icon {
-                width: 45px;
-                height: 45px;
-                font-size: 1.1rem;
-            }
-            
-            .user-avatar {
-                width: 80px;
-                height: 80px;
-                font-size: 2rem;
+            .tab-button {
+                font-size: 1rem;
+                padding: 0.8rem 1rem;
             }
         }
 
-        @media (max-width: 480px) {
-            .form-card {
-                padding: 1.5rem 1rem;
-            }
-            
-            .form-input {
-                padding: 0.8rem 0.8rem 0.8rem 2.5rem;
-            }
-            
-            .input-icon {
-                left: 0.8rem;
-            }
+        /* Loading Animation */
+        .loading-pulse {
+            animation: pulse 2s ease-in-out infinite;
         }
 
-        /* Loading States */
-        .loading {
-            opacity: 0.7;
-            pointer-events: none;
-        }
-
-        .loading .submit-btn {
-            background: #6b7280;
-        }
-
-        /* Animations */
-        .fade-in {
-            animation: fadeIn 0.6s ease-out forwards;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
         }
     </style>
 </head>
 <body>
     <?php include('../inc/header.php'); ?>
-    <?php include('../components/modals.php'); ?>
 
-    <section class="perfil-section">
-        <div class="perfil-container">
-            <!-- Page Header -->
-            <div class="page-header fade-in">
-                <div class="user-avatar">
-                    <?= strtoupper(substr($usuario['nome'], 0, 2)) ?>
+    <section class="transactions-section">
+        <div class="transactions-container">
+            <!-- Header Card -->
+            <div class="header-card">
+                <div class="header-icon">
+                    <i class="bi bi-receipt"></i>
                 </div>
-                <h1 class="page-title">Meu Perfil</h1>
-                <p class="page-subtitle">
-                    Gerencie suas informações pessoais e configurações da conta
-                </p>
+                <h1 class="header-title">Minhas Transações</h1>
+                <p class="header-subtitle">Acompanhe seu histórico de depósitos e saques</p>
             </div>
 
-            <!-- Stats Grid -->
-            <div class="stats-grid">
-                <div class="stat-card saldo">
-                    <div class="stat-header">
-                        <div class="stat-info">
-                            <h3>Saldo Atual</h3>
-                            <div class="stat-value">R$ <?= number_format($usuario['saldo'] ?? 0, 2, ',', '.') ?></div>
-                        </div>
-                        <div class="stat-icon saldo">
+            <!-- Tabs Container -->
+            <div class="tabs-container">
+                <div class="tabs-header">
+                    <button id="tabDepositos" class="tab-button active">
+                        <i class="bi bi-wallet2"></i>
+                        Depósitos
+                    </button>
+                    <button id="tabSaques" class="tab-button">
+                        <i class="bi bi-cash-coin"></i>
+                        Saques
+                    </button>
+                </div>
+
+                <!-- Depósitos Content -->
+                <div id="depositosContent" class="transactions-content active">
+                    <?php if (empty($depositos)): ?>
+                        <div class="empty-state">
                             <i class="bi bi-wallet2"></i>
+                            <h3>Nenhum depósito encontrado</h3>
+                            <p>Quando você fizer um depósito, ele aparecerá aqui</p>
                         </div>
-                    </div>
-                </div>
+                    <?php else: ?>
+                        <div class="transaction-header">
+                            <div><i class="bi bi-calendar3"></i> Data/Hora</div>
+                            <div><i class="bi bi-person-badge"></i> CPF</div>
+                            <div><i class="bi bi-currency-dollar"></i> Valor</div>
+                            <div><i class="bi bi-check-circle"></i> Status</div>
+                        </div>
 
-                <div class="stat-card depositos">
-                    <div class="stat-header">
-                        <div class="stat-info">
-                            <h3>Total Depositado</h3>
-                            <div class="stat-value">R$ <?= number_format($total_depositado, 2, ',', '.') ?></div>
-                        </div>
-                        <div class="stat-icon depositos">
-                            <i class="bi bi-arrow-down-circle"></i>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="stat-card saques">
-                    <div class="stat-header">
-                        <div class="stat-info">
-                            <h3>Total Sacado</h3>
-                            <div class="stat-value">R$ <?= number_format($total_sacado, 2, ',', '.') ?></div>
-                        </div>
-                        <div class="stat-icon saques">
-                            <i class="bi bi-arrow-up-circle"></i>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Form Card -->
-            <div class="form-card">
-                <div class="form-header">
-                    <div class="form-icon">
-                        <i class="bi bi-person-gear"></i>
-                    </div>
-                    <h2 class="form-title">Editar Perfil</h2>
-                    <p class="form-description">
-                        Atualize suas informações pessoais com segurança
-                    </p>
-                </div>
-
-                <form method="POST" class="form-grid" id="perfilForm">
-                    <div class="form-group">
-                        <div class="input-icon">
-                            <i class="bi bi-person"></i>
-                        </div>
-                        <input type="text" 
-                               name="nome" 
-                               class="form-input"
-                               value="<?= htmlspecialchars($usuario['nome'] ?? '') ?>" 
-                               placeholder="Nome completo" 
-                               required>
-                    </div>
-
-                    <div class="form-group">
-                        <div class="input-icon">
-                            <i class="bi bi-telephone"></i>
-                        </div>
-                        <input type="text" 
-                               id="telefone" 
-                               name="telefone" 
-                               class="form-input"
-                               value="<?= htmlspecialchars($usuario['telefone'] ?? '') ?>" 
-                               placeholder="(11) 99999-9999" 
-                               required>
-                    </div>
-
-                    <div class="form-group">
-                        <div class="input-icon">
-                            <i class="bi bi-envelope"></i>
-                        </div>
-                        <input type="email" 
-                               name="email" 
-                               class="form-input"
-                               value="<?= htmlspecialchars($usuario['email'] ?? '') ?>" 
-                               placeholder="seu@email.com" 
-                               required>
-                    </div>
-
-                    <!-- Password Toggle -->
-                    <button type="button" class="password-toggle" id="toggleSenha">
-                        <i class="bi bi-key"></i>
-                        Alterar senha
-                    </button>
-
-                    <!-- Password Fields -->
-                    <div class="password-fields" id="camposSenha">
-                        <div class="password-fields-title">
-                            <i class="bi bi-shield-lock"></i>
-                            Nova Senha
-                        </div>
-                        
-                        <div class="form-group">
-                            <div class="input-icon">
-                                <i class="bi bi-lock"></i>
+                        <?php foreach ($depositos as $deposito): ?>
+                            <div class="transaction-item">
+                                <div class="transaction-row">
+                                    <div class="transaction-date">
+                                        <i class="bi bi-calendar-event"></i>
+                                        <span><?= date('d/m/Y H:i', strtotime($deposito['updated_at'])) ?></span>
+                                    </div>
+                                    <div class="transaction-cpf" onclick="toggleCPF(this)" data-full="<?= htmlspecialchars($deposito['cpf']) ?>">
+                                        <?= substr($deposito['cpf'], 0, 3) ?>.***.***-**
+                                    </div>
+                                    <div class="transaction-amount">
+                                        R$ <?= number_format($deposito['valor'], 2, ',', '.') ?>
+                                    </div>
+                                    <div class="status-badge <?= $deposito['status'] === 'PAID' ? 'approved' : 'pending' ?>">
+                                        <i class="bi bi-<?= $deposito['status'] === 'PAID' ? 'check-circle-fill' : 'clock' ?>"></i>
+                                        <?= $deposito['status'] === 'PAID' ? 'Aprovado' : 'Pendente' ?>
+                                    </div>
+                                </div>
+                                
+                                <!-- Mobile Layout -->
+                                <div class="transaction-mobile">
+                                    <div class="transaction-mobile-header">
+                                        <div class="transaction-date">
+                                            <i class="bi bi-calendar-event"></i>
+                                            <span><?= date('d/m/Y H:i', strtotime($deposito['updated_at'])) ?></span>
+                                        </div>
+                                        <div class="transaction-amount">
+                                            R$ <?= number_format($deposito['valor'], 2, ',', '.') ?>
+                                        </div>
+                                    </div>
+                                    <div class="transaction-mobile-footer">
+                                        <div class="transaction-cpf" onclick="toggleCPF(this)" data-full="<?= htmlspecialchars($deposito['cpf']) ?>">
+                                            <?= substr($deposito['cpf'], 0, 3) ?>.***.***-**
+                                        </div>
+                                        <div class="status-badge <?= $deposito['status'] === 'PAID' ? 'approved' : 'pending' ?>">
+                                            <i class="bi bi-<?= $deposito['status'] === 'PAID' ? 'check-circle-fill' : 'clock' ?>"></i>
+                                            <?= $deposito['status'] === 'PAID' ? 'Aprovado' : 'Pendente' ?>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <input type="password" 
-                                   name="nova_senha" 
-                                   class="form-input"
-                                   placeholder="Digite a nova senha">
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Saques Content -->
+                <div id="saquesContent" class="transactions-content">
+                    <?php if (empty($saques)): ?>
+                        <div class="empty-state">
+                            <i class="bi bi-cash-coin"></i>
+                            <h3>Nenhum saque encontrado</h3>
+                            <p>Quando você fizer um saque, ele aparecerá aqui</p>
+                        </div>
+                    <?php else: ?>
+                        <div class="transaction-header">
+                            <div><i class="bi bi-calendar3"></i> Data/Hora</div>
+                            <div><i class="bi bi-person-badge"></i> CPF</div>
+                            <div><i class="bi bi-currency-dollar"></i> Valor</div>
+                            <div><i class="bi bi-check-circle"></i> Status</div>
                         </div>
 
-                        <div class="form-group">
-                            <div class="input-icon">
-                                <i class="bi bi-lock-fill"></i>
+                        <?php foreach ($saques as $saque): ?>
+                            <div class="transaction-item">
+                                <div class="transaction-row">
+                                    <div class="transaction-date">
+                                        <i class="bi bi-calendar-event"></i>
+                                        <span><?= date('d/m/Y H:i', strtotime($saque['updated_at'])) ?></span>
+                                    </div>
+                                    <div class="transaction-cpf" onclick="toggleCPF(this)" data-full="<?= htmlspecialchars($saque['cpf']) ?>">
+                                        <?= substr($saque['cpf'], 0, 3) ?>.***.***-**
+                                    </div>
+                                    <div class="transaction-amount">
+                                        R$ <?= number_format($saque['valor'], 2, ',', '.') ?>
+                                    </div>
+                                    <div class="status-badge <?= $saque['status'] === 'PAID' ? 'approved' : 'pending' ?>">
+                                        <i class="bi bi-<?= $saque['status'] === 'PAID' ? 'check-circle-fill' : 'clock' ?>"></i>
+                                        <?= $saque['status'] === 'PAID' ? 'Aprovado' : 'Pendente' ?>
+                                    </div>
+                                </div>
+                                
+                                <!-- Mobile Layout -->
+                                <div class="transaction-mobile">
+                                    <div class="transaction-mobile-header">
+                                        <div class="transaction-date">
+                                            <i class="bi bi-calendar-event"></i>
+                                            <span><?= date('d/m/Y H:i', strtotime($saque['updated_at'])) ?></span>
+                                        </div>
+                                        <div class="transaction-amount">
+                                            R$ <?= number_format($saque['valor'], 2, ',', '.') ?>
+                                        </div>
+                                    </div>
+                                    <div class="transaction-mobile-footer">
+                                        <div class="transaction-cpf" onclick="toggleCPF(this)" data-full="<?= htmlspecialchars($saque['cpf']) ?>">
+                                            <?= substr($saque['cpf'], 0, 3) ?>.***.***-**
+                                        </div>
+                                        <div class="status-badge <?= $saque['status'] === 'PAID' ? 'approved' : 'pending' ?>">
+                                            <i class="bi bi-<?= $saque['status'] === 'PAID' ? 'check-circle-fill' : 'clock' ?>"></i>
+                                            <?= $saque['status'] === 'PAID' ? 'Aprovado' : 'Pendente' ?>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <input type="password" 
-                                   name="confirmar_senha" 
-                                   class="form-input"
-                                   placeholder="Confirme a nova senha">
-                        </div>
-                    </div>
-
-                    <!-- Current Password -->
-                    <div class="form-group">
-                        <div class="input-icon">
-                            <i class="bi bi-shield-check"></i>
-                        </div>
-                        <input type="password" 
-                               name="senha_atual" 
-                               class="form-input"
-                               placeholder="Senha atual (para confirmar alterações)" 
-                               required>
-                    </div>
-
-                    <!-- Submit Button -->
-                    <button type="submit" class="submit-btn" id="submitBtn">
-                        <i class="bi bi-check-circle"></i>
-                        Atualizar Perfil
-                    </button>
-                </form>
-
-                <!-- Security Tips -->
-                <div class="security-tips">
-                    <div class="security-title">
-                        <i class="bi bi-info-circle"></i>
-                        Dicas de Segurança
-                    </div>
-                    <ul class="security-list">
-                        <li>
-                            <i class="bi bi-check"></i>
-                            Use uma senha forte com pelo menos 8 caracteres
-                        </li>
-                        <li>
-                            <i class="bi bi-check"></i>
-                            Nunca compartilhe sua senha com terceiros
-                        </li>
-                        <li>
-                            <i class="bi bi-check"></i>
-                            Mantenha seus dados sempre atualizados
-                        </li>
-                        <li>
-                            <i class="bi bi-check"></i>
-                            Use um e-mail válido para recuperação da conta
-                        </li>
-                    </ul>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
     </section>
 
     <?php include('../inc/footer.php'); ?>
+    <?php include('../components/modals.php'); ?>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Phone mask
-            const telefoneInput = document.getElementById('telefone');
-            telefoneInput.addEventListener('input', function(e) {
-                let value = e.target.value.replace(/\D/g, '');
-                if (value.length > 11) value = value.slice(0, 11);
-
-                let formatted = '';
-                if (value.length > 0) {
-                    formatted += '(' + value.substring(0, 2);
-                }
-                if (value.length >= 3) {
-                    formatted += ') ' + value.substring(2, 7);
-                }
-                if (value.length >= 8) {
-                    formatted += '-' + value.substring(7);
-                }
-                e.target.value = formatted;
-            });
-
-            // Password toggle
-            const toggleSenha = document.getElementById('toggleSenha');
-            const camposSenha = document.getElementById('camposSenha');
-
-            toggleSenha.addEventListener('click', function() {
-                camposSenha.classList.toggle('active');
-                
-                const icon = this.querySelector('i');
-                const text = camposSenha.classList.contains('active') ? 'Cancelar' : 'Alterar senha';
-                const iconClass = camposSenha.classList.contains('active') ? 'bi-x-circle' : 'bi-key';
-                
-                icon.className = `bi ${iconClass}`;
-                this.innerHTML = `<i class="bi ${iconClass}"></i> ${text}`;
-            });
-
-            // Form submission
-            const perfilForm = document.getElementById('perfilForm');
-            const submitBtn = document.getElementById('submitBtn');
-
-            perfilForm.addEventListener('submit', function(e) {
-                submitBtn.disabled = true;
-                submitBtn.innerHTML = '<i class="bi bi-arrow-repeat" style="animation: spin 1s linear infinite;"></i> Atualizando...';
-                perfilForm.classList.add('loading');
-            });
-
-            // Add spin animation
-            const style = document.createElement('style');
-            style.textContent = `
-                @keyframes spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                }
-            `;
-            document.head.appendChild(style);
+        // Tab functionality
+        document.getElementById('tabDepositos').addEventListener('click', function() {
+            switchTab('depositos');
         });
 
-        // Notiflix configuration
-        Notiflix.Notify.init({
-            width: '300px',
-            position: 'right-top',
-            distance: '20px',
-            opacity: 1,
-            borderRadius: '12px',
-            timeout: 4000,
-            success: {
-                background: '#22c55e',
-                textColor: '#fff',
-            },
-            failure: {
-                background: '#ef4444',
-                textColor: '#fff',
+        document.getElementById('tabSaques').addEventListener('click', function() {
+            switchTab('saques');
+        });
+
+        function switchTab(tabName) {
+            // Remove active class from all tabs
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.transactions-content').forEach(content => content.classList.remove('active'));
+
+            // Add active class to selected tab
+            document.getElementById(`tab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`).classList.add('active');
+            document.getElementById(`${tabName}Content`).classList.add('active');
+        }
+
+        // CPF reveal functionality
+        function toggleCPF(element) {
+            const fullCPF = element.getAttribute('data-full');
+            const maskedCPF = fullCPF.substring(0, 3) + '.***.***-**';
+            
+            if (element.textContent.includes('*')) {
+                element.textContent = fullCPF;
+                element.style.color = '#22c55e';
+            } else {
+                element.textContent = maskedCPF;
+                element.style.color = '#9ca3af';
             }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('%c💳 Transações carregadas!', 'color: #22c55e; font-size: 16px; font-weight: bold;');
+            
+            // Add hover effects to transaction items
+            document.querySelectorAll('.transaction-item').forEach(item => {
+                item.addEventListener('mouseenter', function() {
+                    this.style.transform = 'translateY(-2px)';
+                });
+                
+                item.addEventListener('mouseleave', function() {
+                    this.style.transform = 'translateY(0)';
+                });
+            });
         });
-
-        // Show messages if any
-        <?php if (isset($_SESSION['message'])): ?>
-            Notiflix.Notify.<?php echo $_SESSION['message']['type']; ?>('<?php echo $_SESSION['message']['text']; ?>');
-            <?php unset($_SESSION['message']); ?>
-        <?php endif; ?>
-
-        console.log('%c👤 Perfil do usuário carregado!', 'color: #22c55e; font-size: 16px; font-weight: bold;');
     </script>
 </body>
 </html>
