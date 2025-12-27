@@ -1,189 +1,113 @@
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@2.0.46/css/materialdesignicons.min.css">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<header style="position: fixed; top: 0; z-index: 3; width: 100%; background-color: #0a2332cc; height: 75px; border-bottom: 1px solid #34d39956; overflow: visible;">
 
-<style>
-    /* Subtle Dark Theme for Admin */
-    .admin-header {
-        background: rgba(20, 20, 20, 0.95) !important;
-        backdrop-filter: blur(20px);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-    }
-    
-    .admin-sidebar {
-        background: rgba(20, 20, 20, 0.95) !important;
-        backdrop-filter: blur(20px);
-        border-right: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
-    }
-    
-    .nav-item-enhanced {
-        padding: 12px 20px;
-        margin: 4px 0;
-        border-radius: 12px;
-        transition: all 0.3s ease;
-        position: relative;
-        overflow: hidden;
-        cursor: pointer;
-        font-weight: 500;
-        color: #e5e7eb !important;
-    }
-    
-    .nav-item-enhanced::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
-        transition: left 0.5s ease;
-    }
-    
-    .nav-item-enhanced:hover::before {
-        left: 100%;
-    }
-    
-    .nav-item-enhanced:hover {
-        background: rgba(255, 255, 255, 0.05);
-        transform: translateX(2px);
-        color: #f3f4f6 !important;
-    }
-    
-    .nav-item-enhanced.active {
-        background: rgba(34, 197, 94, 0.15) !important;
-        color: #22c55e !important;
-        border: 1px solid rgba(34, 197, 94, 0.3);
-        box-shadow: 0 2px 8px rgba(34, 197, 94, 0.2);
-    }
-    
-    .nav-item-enhanced.active::before {
-        display: none;
-    }
-    
-    .nav-item-enhanced i {
-        font-size: 1.1rem;
-        width: 24px;
-        text-align: center;
-        margin-right: 12px;
-        transition: transform 0.3s ease;
-    }
-    
-    .nav-item-enhanced:hover i {
-        transform: scale(1.05);
-    }
-    
-    .menu-toggle {
-        transition: all 0.3s ease;
-        padding: 8px;
-        border-radius: 8px;
-    }
-    
-    .menu-toggle:hover {
-        background: rgba(255, 255, 255, 0.1);
-        transform: scale(1.05);
-    }
-    
-    /* Special colors for specific items */
-    .nav-item-enhanced.text-blue-300 {
-        color: #93c5fd !important;
-    }
-    
-    .nav-item-enhanced.text-red-600 {
-        color: #f87171 !important;
-    }
-    
-    .nav-item-enhanced.text-blue-300:hover {
-        color: #60a5fa !important;
-        background: rgba(59, 130, 246, 0.1) !important;
-    }
-    
-    .nav-item-enhanced.text-red-600:hover {
-        color: #ef4444 !important;
-        background: rgba(239, 68, 68, 0.1) !important;
-    }
-    
-    /* Logo styling */
-    .admin-logo {
-        filter: brightness(1.1);
-        transition: transform 0.3s ease;
-    }
-    
-    .admin-logo:hover {
-        transform: scale(1.02);
-    }
-</style>
 
-<header class="admin-header fixed lg:hidden w-full h-20 top-0 z-[9998] flex justify-between items-center px-5">
-    <i class="fa-solid fa-bars text-white text-2xl cursor-pointer menu-toggle" id="menu-toggle"></i>
-    <div></div>
+    <div style="width: 95%; height: 100%; max-width: 1200px; display: flex; justify-content: space-between; align-items: center; margin: 0 auto;">
+        <div onclick="openProfile(event)" class="user_container" style="display:flex; justify-content: space-between; align-items: center; color: #34D399; gap: 0.6rem; font-size: 17px; padding: 12px 12px; border-radius: 8px; cursor: pointer;">
+            <i class="fa-solid fa-user"></i>
+            <p style="font-weight:600;"><?= $nome; ?></p>
+            <i class="fa fa-chevron-right" style="transform: rotate(90deg); font-size: 14px; "></i>
+            <div class="menu-profile" style="position: absolute; top:64px; z-index:4; transform: translateX(-12px); display:none; flex-direction: column; justify-content: space-around; background-color: #0a2332; font-size: 17px; padding: 8px 0px; border-radius: 8px; cursor: pointer; min-width: 180px; border: 1px solid #34d39956;">
+                <p onclick="openEditModal()" class="edit-profile"><i class="fa-solid fa-pen" style="margin-right: 12px; font-size: 15px; vertical-align: middle; padding: 12px;"></i>Editar Perfil</p>
+                <p onclick="window.location.href='/logout';" class="button-logout" style="color: #F87171"> <i class="fa-solid fa-arrow-right-from-bracket" style="margin-right: 12px; font-size: 15px; vertical-align: middle;padding: 12px;"></i>Sair</p>
+            </div>
+
+            <style>
+                .user_container:hover {
+                    background-color: rgba(16, 185, 129, .1);
+                }
+
+                .edit-profile:hover {
+                    background-color: rgba(16, 185, 129, .1);
+                }
+
+                .button-logout:hover {
+                    background-color: rgba(255, 0, 0, .1);
+                }
+            </style>
+            <script>
+                const openProfile = (event) => {
+                    const menuProfile = document.querySelector('.menu-profile');
+
+                    if (menuProfile.style.display === 'flex') {
+                        menuProfile.style.display = 'none';
+                    } else {
+                        menuProfile.style.display = 'flex';
+                    }
+
+                    event.stopPropagation();
+                };
+
+                document.addEventListener('click', (event) => {
+                    const menuProfile = document.querySelector('.menu-profile');
+                    const userContainer = document.querySelector('.user_container');
+
+                    if (!menuProfile.contains(event.target) && !userContainer.contains(event.target)) {
+                        menuProfile.style.display = 'none';
+                    }
+                });
+            </script>
+        </div>
+
+        <div style="width: 40%; max-width: 200px; display: flex; align-items: center; justify-content: space-between;">
+
+            <div style="color: #34D399;">
+                R$ <?= number_format($saldo, 2, ',', ''); ?>
+            </div>
+
+            <div style="color: #34D399;">
+                <i onclick="getNotification()" class="fa-solid fa-bell" style="font-size: 20px; cursor:pointer;"></i>
+            </div>
+
+            <script>
+                const getNotification = () => {
+                    Notiflix.Loading.standard();
+                    Notiflix.Loading.remove(1000);
+                    setTimeout(() => {
+                        Notiflix.Notify.success('Nenhuma notificação!')
+                    }, 1500)
+                }
+            </script>
+
+            <div id="volumeIcon" style="color: #34D399;">
+                <i class="fa-solid fa-volume-high" style="font-size: 18px; cursor:pointer;"></i>
+            </div>
+
+            <audio id="bgMusic" loop>
+                <source src="/assets/music.mp3" type="audio/mpeg">
+            </audio>
+
+            <script>
+                let audio = document.getElementById('bgMusic');
+                let volumeIcon = document.getElementById('volumeIcon').querySelector('i');
+                let isPlaying = false;
+                audio.volume = 0.3;
+
+                const startMusicOnFirstClick = () => {
+                    if (!isPlaying) {
+                        audio.play().catch(error => console.log("Erro ao iniciar o áudio:", error));
+                        isPlaying = true;
+                        document.removeEventListener('click', startMusicOnFirstClick);
+                    }
+                };
+
+                document.addEventListener('click', startMusicOnFirstClick);
+
+                volumeIcon.addEventListener('click', () => {
+                    if (audio.paused) {
+                        audio.play();
+                        volumeIcon.classList.replace('fa-volume-xmark', 'fa-volume-high');
+                        Notiflix.Notify.success('Música Ativada');
+                    } else {
+                        audio.pause();
+                        Notiflix.Notify.info('Música Desativada');
+                        volumeIcon.classList.replace('fa-volume-high', 'fa-volume-xmark');
+                    }
+                });
+            </script>
+
+
+
+        </div>
+
+    </div>
 </header>
-
-<aside id="aside" class="admin-sidebar fixed w-full lg:w-[280px] h-[calc(100vh-80px)] lg:h-full z-[9999] top-20 lg:top-0 left-0 flex flex-col justify-start gap-6 text-xl text-gray-300 px-8 hidden lg:flex" style="padding: 20px 16px !important;">
-    
-    <nav class="flex flex-col gap-2">
-        <p onclick="window.location.href='/admin'" class="nav-item-enhanced flex items-center gap-4 cursor-pointer" style="padding-left: 16px;"> 
-            <i class="fa-solid fa-chart-line"></i> Dashboard
-        </p>
-        <p onclick="window.location.href='config.php'" class="nav-item-enhanced flex items-center gap-4 cursor-pointer" style="padding-left: 16px;"> 
-            <i class="fa-solid fa-gear"></i> Configurações
-        </p>
-        <p onclick="window.location.href='gateway.php'" class="nav-item-enhanced flex items-center gap-4 cursor-pointer" style="padding-left: 16px;"> 
-            <i class="fa-solid fa-landmark"></i> Gateway
-        </p>
-        <p onclick="window.location.href='usuarios.php'" class="nav-item-enhanced flex items-center gap-4 cursor-pointer" style="padding-left: 16px;"> 
-            <i class="fa-solid fa-users"></i> Usuários
-        </p>
-        <p onclick="window.location.href='afiliados.php'" class="nav-item-enhanced flex items-center gap-4 cursor-pointer" style="padding-left: 16px;"> 
-            <i class="fa-solid fa-people-arrows"></i> Afiliados
-        </p>
-        <p onclick="window.location.href='cartelas.php'" class="nav-item-enhanced flex items-center gap-4 cursor-pointer" style="padding-left: 16px;"> 
-            <i class="fa-solid fa-gem"></i> Raspadinhas
-        </p>
-        <p onclick="window.location.href='depositos.php'" class="nav-item-enhanced flex items-center gap-4 cursor-pointer" style="padding-left: 16px;"> 
-            <i class="fa-solid fa-plus-circle"></i> Depósitos
-        </p>
-        <p onclick="window.location.href='saques.php'" class="nav-item-enhanced flex items-center gap-4 cursor-pointer" style="padding-left: 16px;"> 
-            <i class="fa-solid fa-minus-circle"></i> Saques
-        </p>
-        
-        <div class="my-4 border-t border-gray-600"></div>
-        
-        <p onclick="window.location.href='/'" class="nav-item-enhanced flex items-center gap-4 cursor-pointer" style="padding-left: 16px;"> 
-            <i class="fa-solid fa-globe"></i> Plataforma
-        </p>
-        <p onclick="window.open('https://wa.me/+5584999591257', '_blank')" class="nav-item-enhanced text-blue-300 flex items-center gap-4 cursor-pointer" style="padding-left: 16px;"> 
-            <i class="fa-solid fa-life-ring"></i> Suporte
-        </p>
-        <p onclick="window.location.href='/logout'" class="nav-item-enhanced text-red-600 flex items-center gap-4 cursor-pointer" style="padding-left: 16px;"> 
-            <i class="fa-solid fa-sign-out-alt"></i> Sair
-        </p>
-    </nav>
-</aside>
-
-<script>
-    const menuToggle = document.getElementById("menu-toggle");
-    const aside = document.getElementById("aside");
-
-    menuToggle.addEventListener("click", () => {
-        if (aside.classList.contains("hidden")) {
-            aside.classList.remove("hidden");
-        } else {
-            aside.classList.add("hidden");
-        }
-    });
-
-    // Auto-hide sidebar on mobile when clicking outside
-    document.addEventListener('click', function(event) {
-        if (window.innerWidth <= 1024 && 
-            !aside.contains(event.target) && 
-            !menuToggle.contains(event.target) && 
-            !aside.classList.contains('hidden')) {
-            aside.classList.add('hidden');
-        }
-    });
-</script>

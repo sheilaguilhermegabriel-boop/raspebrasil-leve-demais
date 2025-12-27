@@ -1,49 +1,37 @@
 <?php
-session_start();
+@session_start();
 
-if(isset($_SESSION['usuario_id'])){
+if (isset($_SESSION['usuario_id'])) {
     $_SESSION['message'] = ['type' => 'warning', 'text' => 'Você já está logado!'];
     header("Location: /");
     exit;
 }
 
-require_once '../conexao.php'; 
+require_once '../conexao.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $nome = trim($_POST['nome']);
-    $telefone = trim($_POST['telefone']);
     $email = trim($_POST['email']);
-    $senha = password_hash($_POST['senha'], PASSWORD_DEFAULT);
-    $ref = $_POST['ref'] ?? null;
+    $senha = $_POST['senha'];
 
-    try {
-        $stmt_config = $pdo->query("SELECT cpa_padrao, revshare_padrao FROM config LIMIT 1");
-        $config = $stmt_config->fetch(PDO::FETCH_ASSOC);
-        
-        $cpa_padrao = $config['cpa_padrao'] ?? 0.00;
-        $revshare_padrao = $config['revshare_padrao'] ?? 0.00;
-    } catch (PDOException $e) {
-        $cpa_padrao = 0.00;
-        $revshare_padrao = 0.00;
-    }
+    $stmt = $pdo->prepare("SELECT * FROM usuarios WHERE email = ? LIMIT 1");
+    $stmt->execute([$email]);
+    $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    $stmt = $pdo->prepare("INSERT INTO usuarios 
-                          (nome, telefone, email, senha, saldo, indicacao, banido, comissao_cpa, comissao_revshare, created_at, updated_at) 
-                          VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?, NOW(), NOW())");
-
-    try {
-        $stmt->execute([$nome, $telefone, $email, $senha, $ref, $cpa_padrao, $revshare_padrao]);
-        
-        $usuarioId = $pdo->lastInsertId();
-        $_SESSION['usuario_id'] = $usuarioId;
-        $_SESSION['message'] = ['type' => 'success', 'text' => 'Cadastro realizado com sucesso!'];
-        
+    if ($usuario && password_verify($senha, $usuario['senha'])) {
+      
+      if($usuario['banido'] == 1){
+        $_SESSION['message'] = ['type' => 'failure', 'text' => 'Você está banido!'];
         header("Location: /");
         exit;
-    } catch (PDOException $e) {
-        error_log("Erro ao cadastrar: " . $e->getMessage());
-        $_SESSION['message'] = ['type' => 'failure', 'text' => 'Erro ao realizar cadastro!'];
-        header("Location: /cadastro");
+      }
+      
+        $_SESSION['usuario_id'] = $usuario['id'];
+        $_SESSION['message'] = ['type' => 'success', 'text' => 'Login realizado com sucesso!'];
+        header("Location: /");
+        exit;
+    } else {
+        $_SESSION['message'] = ['type' => 'failure', 'text' => 'E-mail ou senha inválidos.'];
+        header("Location: /login");
         exit;
     }
 }
@@ -54,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $nomeSite;?> - Cadastro</title>
+    <title><?php echo $nomeSite;?> - Login</title>
     
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -65,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     
     <!-- Styles -->
-    <link rel="stylesheet" href="/assets/style/globalStyles.css?id=<?php echo time();?>"/>
+    <link rel="stylesheet" href="/assets/style/globalStyles.css?id=<?= time(); ?>">
     
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/notiflix@3.2.8/dist/notiflix-aio-3.2.8.min.js"></script>
@@ -73,15 +61,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <style>
         /* Page Styles */
-        .cadastro-section {
+        .login-section {
             margin-top: 100px;
             padding: 4rem 0;
             background: #0a0a0a;
-            min-height: calc(100vh - 100px);
-            position: relative;
+            min-height: calc(100vh - 200px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
-        .cadastro-container {
+        .login-container {
             max-width: 1200px;
             width: 100%;
             margin: 0 auto;
@@ -90,7 +80,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             grid-template-columns: 1fr 1fr;
             gap: 4rem;
             align-items: center;
-            min-height: calc(100vh - 200px);
         }
 
         /* Left Section */
@@ -161,13 +150,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-weight: 700;
         }
 
-        .benefits-list {
+        .features-list {
             display: flex;
             flex-direction: column;
             gap: 1.5rem;
         }
 
-        .benefit-item {
+        .feature-item {
             display: flex;
             align-items: center;
             gap: 1rem;
@@ -175,7 +164,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-size: 1.1rem;
         }
 
-        .benefit-icon {
+        .feature-icon {
             width: 40px;
             height: 40px;
             background: rgba(34, 197, 94, 0.2);
@@ -195,7 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             justify-content: center;
         }
 
-        .cadastro-card {
+        .login-card {
             background: rgba(20, 20, 20, 0.8);
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 24px;
@@ -208,7 +197,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             overflow: hidden;
         }
 
-        .cadastro-card::before {
+        .login-card::before {
             content: '';
             position: absolute;
             top: 0;
@@ -220,14 +209,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             transform: translate(50%, -50%);
         }
 
-        .cadastro-header {
+        .login-header {
             text-align: center;
             margin-bottom: 2.5rem;
             position: relative;
             z-index: 2;
         }
 
-        .cadastro-icon {
+        .login-icon {
             width: 60px;
             height: 60px;
             background: linear-gradient(135deg, #22c55e, #16a34a);
@@ -241,20 +230,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             box-shadow: 0 8px 24px rgba(34, 197, 94, 0.3);
         }
 
-        .cadastro-title {
+        .login-title {
             font-size: 1.8rem;
             font-weight: 700;
             color: white;
             margin-bottom: 0.5rem;
         }
 
-        .cadastro-subtitle {
+        .login-subtitle {
             color: #9ca3af;
             font-size: 1rem;
         }
 
         /* Form Styles */
-        .cadastro-form {
+        .login-form {
             display: flex;
             flex-direction: column;
             gap: 1.5rem;
@@ -300,85 +289,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         .form-group:focus-within .input-icon {
             color: #22c55e;
-        }
-
-        /* Checkbox */
-        .checkbox-group {
-            display: flex;
-            align-items: flex-start;
-            gap: 0.75rem;
-            margin: 1rem 0;
-        }
-
-        .custom-checkbox {
-            width: 18px;
-            height: 18px;
-            background: #22c55e;
-            border: 1px solid #22c55e;
-            border-radius: 4px;
-            cursor: pointer;
-            position: relative;
-            flex-shrink: 0;
-            margin-top: 3px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .custom-checkbox input {
-            opacity: 0;
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            cursor: pointer;
-            margin: 0;
-            z-index: 2;
-        }
-
-        .custom-checkbox::after {
-            content: '✓';
-            color: white;
-            font-size: 11px;
-            font-weight: bold;
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-        }
-
-        .custom-checkbox input:not(:checked) + .checkmark {
-            background: rgba(255, 255, 255, 0.05);
-            border-color: rgba(255, 255, 255, 0.2);
-        }
-
-        .custom-checkbox input:not(:checked) ~ .checkmark::after {
-            display: none;
-        }
-
-        .checkmark {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            border-radius: 4px;
-            transition: all 0.3s ease;
-            pointer-events: none;
-        }
-
-        .checkbox-label {
-            color: #9ca3af;
-            font-size: 0.9rem;
-            line-height: 1.5;
-        }
-
-        .checkbox-label a {
-            color: #22c55e;
-            text-decoration: none;
-        }
-
-        .checkbox-label a:hover {
-            text-decoration: underline;
         }
 
         /* Submit Button */
@@ -529,14 +439,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         /* Responsive */
         @media (max-width: 1024px) {
-            .cadastro-container {
+            .login-container {
                 grid-template-columns: 1fr;
                 gap: 2rem;
                 max-width: 600px;
             }
 
             .brand-content {
-                display: none !important;
+                display: none;
             }
             
             .left-section {
@@ -552,32 +462,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 font-size: 2.5rem;
             }
             
-            .benefits-list {
+            .features-list {
                 flex-direction: row;
                 flex-wrap: wrap;
                 justify-content: center;
                 gap: 1rem;
             }
             
-            .benefit-item {
+            .feature-item {
                 font-size: 1rem;
             }
         }
 
         @media (max-width: 768px) {
-            .cadastro-section {
+            .login-section {
                 padding: 2rem 0;
             }
-
-            .brand-content {
-                display: none !important;
-            }
             
-            .cadastro-container {
+            .login-container {
                 padding: 0 1rem;
             }
             
-            .cadastro-card {
+            .login-card {
                 padding: 2rem;
                 border-radius: 20px;
             }
@@ -596,22 +502,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 font-size: 1.1rem;
             }
             
-            .benefits-list {
+            .features-list {
                 display: none;
             }
         }
 
         @media (max-width: 480px) {
-            .cadastro-card {
+            .login-card {
                 padding: 1.5rem;
             }
             
             .form-input {
                 padding: 0.8rem 0.8rem 0.8rem 2.5rem;
-            }
-
-            .brand-content {
-                display: none !important;
             }
             
             .input-icon {
@@ -649,7 +551,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
     <?php include('../inc/header.php'); ?>
 
-    <section class="cadastro-section">
+    <section class="login-section">
         <!-- Floating Elements -->
         <div class="floating-elements">
             <div class="floating-element"></div>
@@ -658,41 +560,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="floating-element"></div>
         </div>
 
-        <div class="cadastro-container fade-in">
+        <div class="login-container fade-in">
             <!-- Left Section -->
             <div class="left-section">
                 <div class="brand-content">
-                    <h1 class="brand-title">Comece a ganhar hoje!</h1>
+                    <h1 class="brand-title">Bem-vindo de volta!</h1>
                     <p class="brand-subtitle">
-                        Junte-se a milhares de usuários que já estão ganhando 
+                        Entre na sua conta e continue ganhando 
                         <span class="highlight-text">prêmios incríveis</span> 
-                        com a RaspaGreen!
+                        com nossas raspadinhas!
                     </p>
                     
-                    <div class="benefits-list">
-                        <div class="benefit-item">
-                            <div class="benefit-icon">
-                                <i class="bi bi-gift"></i>
+                    <div class="features-list">
+                        <div class="feature-item">
+                            <div class="feature-icon">
+                                <i class="bi bi-shield-check"></i>
                             </div>
-                            <span>Prêmios de até R$ 15.000</span>
+                            <span>Login 100% seguro</span>
                         </div>
-                        <div class="benefit-item">
-                            <div class="benefit-icon">
-                                <i class="bi bi-lightning-charge"></i>
+                        <div class="feature-item">
+                            <div class="feature-icon">
+                                <i class="bi bi-lightning"></i>
                             </div>
                             <span>PIX instantâneo</span>
                         </div>
-                        <div class="benefit-item">
-                            <div class="benefit-icon">
-                                <i class="bi bi-shield-check"></i>
+                        <div class="feature-item">
+                            <div class="feature-icon">
+                                <i class="bi bi-trophy"></i>
                             </div>
-                            <span>Plataforma 100% segura</span>
+                            <span>Prêmios de até R$ 15.000</span>
                         </div>
-                        <div class="benefit-item">
-                            <div class="benefit-icon">
-                                <i class="bi bi-clock"></i>
+                        <div class="feature-item">
+                            <div class="feature-icon">
+                                <i class="bi bi-headset"></i>
                             </div>
-                            <span>Disponível 24/7</span>
+                            <span>Suporte 24/7</span>
                         </div>
                     </div>
                 </div>
@@ -700,61 +602,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             <!-- Right Section -->
             <div class="right-section">
-                <div class="cadastro-card">
-                    <div class="cadastro-header">
-                        <div class="cadastro-icon">
-                            <i class="bi bi-person-plus"></i>
+                <div class="login-card">
+                    <div class="login-header">
+                        <div class="login-icon">
+                            <i class="bi bi-person-check"></i>
                         </div>
-                        <h2 class="cadastro-title">Cadastre-se</h2>
-                        <p class="cadastro-subtitle">
-                            Crie sua conta grátis em menos de 1 minuto
+                        <h2 class="login-title">Acesse sua conta</h2>
+                        <p class="login-subtitle">
+                            Digite suas credenciais para continuar
                         </p>
                     </div>
 
-                    <form id="cadastroForm" method="POST" class="cadastro-form">
-                        <input id="ref" name="ref" type="hidden" value="">
-                        
-                        <div class="form-group">
-                            <div class="input-icon">
-                                <i class="bi bi-person"></i>
-                            </div>
-                            <input type="text" name="nome" class="form-input" placeholder="Nome completo" required>
-                        </div>
-
-                        <div class="form-group">
-                            <div class="input-icon">
-                                <i class="bi bi-telephone"></i>
-                            </div>
-                            <input type="text" id="telefone" name="telefone" class="form-input" placeholder="(11) 99999-9999" required>
-                        </div>
-
+                    <form method="POST" class="login-form" id="loginForm">
                         <div class="form-group">
                             <div class="input-icon">
                                 <i class="bi bi-envelope"></i>
                             </div>
-                            <input type="email" name="email" class="form-input" placeholder="seu@email.com" required>
+                            <input type="email" 
+                                   name="email" 
+                                   class="form-input"
+                                   placeholder="seu@email.com" 
+                                   required>
                         </div>
 
                         <div class="form-group">
                             <div class="input-icon">
                                 <i class="bi bi-lock"></i>
                             </div>
-                            <input type="password" name="senha" class="form-input" placeholder="Senha segura" required>
-                        </div>
-
-                        <div class="checkbox-group">
-                            <div class="custom-checkbox">
-                                <input id="aceiteTermos" name="aceiteTermos" type="checkbox" checked required>
-                                <div class="checkmark"></div>
-                            </div>
-                            <label for="aceiteTermos" class="checkbox-label">
-                                Li e aceito os <a href="/politica" target="_blank">termos e políticas de privacidade</a>
-                            </label>
+                            <input type="password" 
+                                   name="senha" 
+                                   class="form-input"
+                                   placeholder="Sua senha" 
+                                   required>
                         </div>
 
                         <button type="submit" class="submit-btn" id="submitBtn">
-                            <i class="bi bi-check-circle"></i>
-                            Criar Conta Grátis
+                            <i class="bi bi-box-arrow-in-right"></i>
+                            Entrar
                         </button>
                     </form>
 
@@ -764,10 +648,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                         
                         <p class="footer-text">
-                            Já tem uma conta?
+                            Ainda não tem uma conta?
                         </p>
-                        <a href="/login" class="footer-link">
-                            Faça login
+                        <a href="/cadastro" class="footer-link">
+                            Cadastre-se grátis
                         </a>
                     </div>
                 </div>
@@ -779,56 +663,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            // Ref parameter handling
-            function getRefParam() {
-                const urlParams = new URLSearchParams(window.location.search);
-                return urlParams.get('ref');
-            }
-
-            const refParam = getRefParam();
-            if (refParam) {
-                localStorage.setItem('ref', refParam);
-            }
-
-            const params = new URLSearchParams(window.location.search);
-            let refValue = params.get('ref');
-
-            if (!refValue) {
-                refValue = localStorage.getItem('ref') || '';
-            } else {
-                localStorage.setItem('ref', refValue);
-            }
-
-            const refInput = document.getElementById('ref');
-            if (refInput) refInput.value = refValue;
-
-            // Phone mask
-            const telefoneInput = document.getElementById('telefone');
-            telefoneInput.addEventListener('input', function(e) {
-                let value = e.target.value.replace(/\D/g, '');
-                if (value.length > 11) value = value.slice(0, 11);
-
-                let formatted = '';
-                if (value.length > 0) {
-                    formatted += '(' + value.substring(0, 2);
-                }
-                if (value.length >= 3) {
-                    formatted += ') ' + value.substring(2, 7);
-                }
-                if (value.length >= 8) {
-                    formatted += '-' + value.substring(7);
-                }
-                e.target.value = formatted;
-            });
-
             // Form submission
-            const cadastroForm = document.getElementById('cadastroForm');
+            const loginForm = document.getElementById('loginForm');
             const submitBtn = document.getElementById('submitBtn');
 
-            cadastroForm.addEventListener('submit', function(e) {
+            loginForm.addEventListener('submit', function(e) {
                 submitBtn.disabled = true;
-                submitBtn.innerHTML = '<i class="bi bi-arrow-repeat" style="animation: spin 1s linear infinite;"></i> Criando conta...';
-                cadastroForm.classList.add('loading');
+                submitBtn.innerHTML = '<i class="bi bi-arrow-repeat" style="animation: spin 1s linear infinite;"></i> Entrando...';
+                loginForm.classList.add('loading');
             });
 
             // Add spin animation
@@ -882,7 +724,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php unset($_SESSION['message']); ?>
         <?php endif; ?>
 
-        console.log('%c🎯 RaspaGreen - Cadastro Split Screen', 'color: #22c55e; font-size: 16px; font-weight: bold;');
+        console.log('%c🔐 Página de Login carregada!', 'color: #22c55e; font-size: 16px; font-weight: bold;');
     </script>
 </body>
 </html>
