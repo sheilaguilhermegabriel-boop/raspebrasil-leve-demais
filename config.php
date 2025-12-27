@@ -6,61 +6,66 @@ include '../includes/notiflix.php';
 $usuarioId = $_SESSION['usuario_id'];
 $admin = ($stmt = $pdo->prepare("SELECT admin FROM usuarios WHERE id = ?"))->execute([$usuarioId]) ? $stmt->fetchColumn() : null;
 
-if( $admin != 1){
+if ($admin != 1) {
     $_SESSION['message'] = ['type' => 'warning', 'text' => 'Você não é um administrador!'];
     header("Location: /");
     exit;
 }
 
+$config = $pdo->query("SELECT * FROM config LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+
+if (isset($_POST['salvar_config'])) {
+    $nome_site = $_POST['nome_site'];
+    $deposito_min = str_replace(',', '.', $_POST['deposito_min']);
+    $saque_min = str_replace(',', '.', $_POST['saque_min']);
+    $cpa_padrao = str_replace(',', '.', $_POST['cpa_padrao']);
+    $revshare_padrao = str_replace(',', '.', $_POST['revshare_padrao']); // Novo campo
+    
+    $logo = $config['logo'];
+    
+    if (isset($_FILES['logo']) && $_FILES['logo']['error'] == 0) {
+        $allowed = ['jpg', 'jpeg', 'png'];
+        $ext = pathinfo($_FILES['logo']['name'], PATHINFO_EXTENSION);
+        
+        if (in_array(strtolower($ext), $allowed)) {
+            $uploadDir = '../assets/upload/';
+            if (!file_exists($uploadDir)) {
+                mkdir($uploadDir, 0777, true);
+            }
+            
+            $newName = uniqid() . '.' . $ext;
+            $uploadPath = $uploadDir . $newName;
+            
+            if (move_uploaded_file($_FILES['logo']['tmp_name'], $uploadPath)) {
+                if ($config['logo'] && file_exists('../' . $config['logo'])) {
+                    unlink('../' . $config['logo']);
+                }
+                $logo = '/assets/upload/' . $newName;
+            } else {
+                $_SESSION['failure'] = 'Erro ao fazer upload da logo!';
+                header('Location: '.$_SERVER['PHP_SELF']);
+                exit;
+            }
+        } else {
+            $_SESSION['failure'] = 'Formato de arquivo inválido! Use apenas JPG ou PNG.';
+            header('Location: '.$_SERVER['PHP_SELF']);
+            exit;
+        }
+    }
+    
+    // Query atualizada para incluir revshare_padrao
+    $stmt = $pdo->prepare("UPDATE config SET nome_site = ?, logo = ?, deposito_min = ?, saque_min = ?, cpa_padrao = ?, revshare_padrao = ?");
+    if ($stmt->execute([$nome_site, $logo, $deposito_min, $saque_min, $cpa_padrao, $revshare_padrao])) {
+        $_SESSION['success'] = 'Configurações atualizadas com sucesso!';
+    } else {
+        $_SESSION['failure'] = 'Erro ao atualizar as configurações!';
+    }
+    header('Location: '.$_SERVER['PHP_SELF']);
+    exit;
+}
+
 $nome = ($stmt = $pdo->prepare("SELECT nome FROM usuarios WHERE id = ?"))->execute([$usuarioId]) ? $stmt->fetchColumn() : null;
 $nome = $nome ? explode(' ', $nome)[0] : null;
-
-$total_usuarios = ($stmt = $pdo->prepare("SELECT COUNT(*) FROM usuarios"))->execute() ? $stmt->fetchColumn() : 0;
-$total_depositos = ($stmt = $pdo->prepare("SELECT COUNT(*) FROM depositos WHERE status = 1"))->execute() ? $stmt->fetchColumn() : 0;
-$total_saldo = ($stmt = $pdo->prepare("SELECT SUM(saldo) FROM usuarios"))->execute() ? $stmt->fetchColumn() : 0;
-
-$sql = "
-    SELECT 
-        u.nome, 
-        d.valor, 
-        d.updated_at 
-    FROM 
-        depositos d
-    INNER JOIN 
-        usuarios u ON d.user_id = u.id
-    WHERE 
-        d.status = 'PAID'
-    ORDER BY 
-        d.updated_at DESC
-    LIMIT 5
-";
-
-$stmt = $pdo->prepare($sql);
-$stmt->execute();
-
-$depositos_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-$sql = "
-    SELECT 
-        u.nome, 
-        s.valor, 
-        s.updated_at 
-    FROM 
-        saques s
-    INNER JOIN 
-        usuarios u ON s.user_id = u.id
-    WHERE 
-        s.status = 'PENDING'
-    ORDER BY 
-        s.updated_at DESC
-    LIMIT 5
-";
-
-$stmt = $pdo->prepare($sql);
-$stmt->execute();
-
-$saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
 ?>
 
 <!DOCTYPE html>
@@ -68,7 +73,7 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $nomeSite ?? 'Admin'; ?> - Dashboard Administrativo</title>
+    <title><?php echo $nomeSite ?? 'Admin'; ?> - Configurações</title>
     
     <!-- TailwindCSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -98,7 +103,7 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             overflow-x: hidden;
         }
         
-        /* Advanced Sidebar Styles */
+        /* Sidebar Styles */
         .sidebar {
             position: fixed;
             top: 0;
@@ -134,7 +139,6 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             transform: translateX(-100%);
         }
         
-        /* Enhanced Sidebar Header */
         .sidebar-header {
             position: relative;
             padding: 2.5rem 2rem;
@@ -205,7 +209,6 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             letter-spacing: 1px;
         }
         
-        /* Advanced Navigation */
         .nav-menu {
             padding: 2rem 0;
             position: relative;
@@ -293,7 +296,6 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
         }
         
-        /* Sidebar Footer */
         .sidebar-footer {
             position: absolute;
             bottom: 0;
@@ -366,7 +368,6 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             margin-left: 0;
         }
         
-        /* Enhanced Header */
         .header {
             position: sticky;
             top: 0;
@@ -416,39 +417,7 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             gap: 1rem;
         }
         
-        .notification-btn {
-            position: relative;
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.2);
-            color: #22c55e;
-            padding: 0.75rem;
-            border-radius: 12px;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
-        .notification-btn:hover {
-            background: rgba(34, 197, 94, 0.2);
-            transform: scale(1.05);
-        }
-        
-        .notification-badge {
-            position: absolute;
-            top: -4px;
-            right: -4px;
-            background: #ef4444;
-            color: white;
-            font-size: 0.6rem;
-            font-weight: 600;
-            padding: 0.2rem 0.4rem;
-            border-radius: 6px;
-            min-width: 16px;
-            text-align: center;
-        }
-        
-        /* Enhanced Stats Cards */
-        .dashboard-content {
+        .page-content {
             padding: 2.5rem;
         }
         
@@ -473,25 +442,20 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             font-weight: 400;
         }
         
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 2rem;
-            margin-bottom: 3rem;
-        }
-        
-        .stat-card {
+        /* Form Container */
+        .form-container {
             background: linear-gradient(135deg, rgba(20, 20, 20, 0.8) 0%, rgba(10, 10, 10, 0.9) 100%);
             border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 20px;
-            padding: 2.5rem;
+            border-radius: 24px;
+            padding: 3rem;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+            transition: all 0.3s ease;
             position: relative;
             overflow: hidden;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            backdrop-filter: blur(20px);
         }
         
-        .stat-card::before {
+        .form-container::before {
             content: '';
             position: absolute;
             top: 0;
@@ -503,127 +467,29 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             transition: opacity 0.3s ease;
         }
         
-        .stat-card::after {
-            content: '';
-            position: absolute;
-            top: 50%;
-            right: -50px;
-            width: 200px;
-            height: 200px;
-            background: radial-gradient(circle, rgba(34, 197, 94, 0.1) 0%, transparent 70%);
-            transform: translateY(-50%);
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-        
-        .stat-card:hover::before,
-        .stat-card:hover::after {
+        .form-container:hover::before {
             opacity: 1;
         }
         
-        .stat-card:hover {
-            transform: translateY(-8px);
-            border-color: rgba(34, 197, 94, 0.3);
-            box-shadow: 
-                0 20px 60px rgba(0, 0, 0, 0.4),
-                0 0 40px rgba(34, 197, 94, 0.1);
-        }
-        
-        .stat-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 2rem;
-        }
-        
-        .stat-icon {
-            width: 64px;
-            height: 64px;
-            background: linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%);
-            border: 2px solid rgba(34, 197, 94, 0.3);
-            border-radius: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #22c55e;
-            font-size: 1.5rem;
-            position: relative;
-            box-shadow: 0 8px 20px rgba(34, 197, 94, 0.2);
-        }
-        
-        .stat-value {
-            font-size: 2.75rem;
-            font-weight: 800;
-            color: #ffffff;
-            margin-bottom: 0.5rem;
-            line-height: 1;
-        }
-        
-        .stat-label {
-            color: #a1a1aa;
-            font-size: 1rem;
-            font-weight: 500;
-        }
-        
-        .stat-trend {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.875rem;
-            font-weight: 600;
-            color: #22c55e;
-        }
-        
-        /* Enhanced Activity Cards */
-        .activity-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
-            gap: 2rem;
-        }
-        
-        .activity-card {
-            background: linear-gradient(135deg, rgba(20, 20, 20, 0.8) 0%, rgba(10, 10, 10, 0.9) 100%);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 20px;
-            padding: 2.5rem;
-            transition: all 0.3s ease;
-            backdrop-filter: blur(20px);
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .activity-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 100px;
-            height: 100px;
-            background: radial-gradient(circle, rgba(34, 197, 94, 0.1) 0%, transparent 70%);
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-        
-        .activity-card:hover::before {
-            opacity: 1;
-        }
-        
-        .activity-card:hover {
-            border-color: rgba(34, 197, 94, 0.2);
+        .form-container:hover {
             transform: translateY(-4px);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            border-color: rgba(34, 197, 94, 0.2);
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.5);
         }
         
-        .activity-header {
+        .form-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 2.5rem;
             display: flex;
             align-items: center;
             gap: 1rem;
-            margin-bottom: 2rem;
-            padding-bottom: 1rem;
+            padding-bottom: 1.5rem;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
         
-        .activity-icon {
+        .form-title i {
             width: 48px;
             height: 48px;
             background: linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%);
@@ -633,114 +499,192 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             align-items: center;
             justify-content: center;
             color: #22c55e;
-            font-size: 1.125rem;
+            font-size: 1.25rem;
         }
         
-        .activity-title {
+        /* Form Sections */
+        .form-section {
+            margin-bottom: 3rem;
+        }
+        
+        .section-title {
             font-size: 1.25rem;
             font-weight: 600;
             color: #ffffff;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
         }
         
-        .activity-item {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 1rem;
-            transition: all 0.3s ease;
+        .section-title i {
+            color: #22c55e;
+            font-size: 1.125rem;
+        }
+        
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 2rem;
+        }
+        
+        .form-group {
             position: relative;
         }
         
-        .activity-item::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 3px;
-            background: linear-gradient(135deg, #22c55e, #16a34a);
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-        
-        .activity-item:hover::before {
-            opacity: 1;
-        }
-        
-        .activity-item:hover {
-            background: rgba(34, 197, 94, 0.05);
-            border-color: rgba(34, 197, 94, 0.2);
-            transform: translateX(4px);
-        }
-        
-        .activity-item:last-child {
-            margin-bottom: 0;
-        }
-        
-        .activity-item-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.75rem;
-        }
-        
-        .activity-name {
+        .form-label {
+            display: block;
+            color: #e5e7eb;
+            font-size: 0.9rem;
             font-weight: 600;
-            color: #ffffff;
-            font-size: 1rem;
-        }
-        
-        .activity-value {
-            font-weight: 700;
-            color: #22c55e;
-            font-size: 1.1rem;
-        }
-        
-        .activity-meta {
+            margin-bottom: 0.75rem;
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .form-label i {
+            color: #22c55e;
             font-size: 0.875rem;
+        }
+        
+        .form-input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            color: white;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        
+        .form-input.percentage {
+            padding-right: 2.5rem;
+        }
+        
+        .form-input:focus {
+            outline: none;
+            border-color: rgba(34, 197, 94, 0.5);
+            box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1);
+            background: rgba(0, 0, 0, 0.6);
+        }
+        
+        .form-input::placeholder {
             color: #6b7280;
         }
         
-        .activity-status {
-            display: inline-flex;
+        .percentage-symbol {
+            position: absolute;
+            right: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #9ca3af;
+            font-weight: 600;
+            pointer-events: none;
+        }
+        
+        .input-container {
+            position: relative;
+        }
+        
+        /* File Input */
+        .file-input-container {
+            position: relative;
+        }
+        
+        .file-input {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+        
+        .file-input-label {
+            display: flex;
             align-items: center;
-            gap: 0.25rem;
-            padding: 0.25rem 0.75rem;
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.2);
-            border-radius: 6px;
-            font-size: 0.75rem;
+            justify-content: center;
+            gap: 0.75rem;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            border: 2px dashed rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            padding: 1.5rem;
+            color: #9ca3af;
+            font-size: 1rem;
             font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+        
+        .file-input-label:hover {
+            border-color: rgba(34, 197, 94, 0.4);
+            background: rgba(34, 197, 94, 0.05);
             color: #22c55e;
         }
         
-        .status-dot {
-            width: 6px;
-            height: 6px;
-            background: #22c55e;
-            border-radius: 50%;
+        .file-input-label.has-file {
+            border-color: rgba(34, 197, 94, 0.4);
+            background: rgba(34, 197, 94, 0.1);
+            color: #22c55e;
         }
         
-        .empty-state {
-            text-align: center;
-            padding: 4rem 2rem;
-            color: #6b7280;
+        /* Current Logo */
+        .current-logo {
+            margin-top: 1rem;
+            padding: 1.5rem;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
         }
         
-        .empty-state i {
-            font-size: 3rem;
+        .current-logo p {
+            color: #9ca3af;
+            font-size: 0.9rem;
             margin-bottom: 1rem;
-            opacity: 0.3;
-            color: #374151;
+            font-weight: 500;
         }
         
-        .empty-state p {
-            font-size: 1rem;
-            font-weight: 500;
+        .current-logo img {
+            max-height: 80px;
+            max-width: 100%;
+            object-fit: contain;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.75rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        /* Submit Button */
+        .submit-button {
+            width: 100%;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+            border: none;
+            padding: 1.25rem 2rem;
+            border-radius: 16px;
+            font-size: 1.125rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            margin-top: 3rem;
+            box-shadow: 0 8px 25px rgba(34, 197, 94, 0.3);
+        }
+        
+        .submit-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 35px rgba(34, 197, 94, 0.4);
+        }
+        
+        .submit-button:active {
+            transform: translateY(0);
         }
         
         /* Mobile Styles */
@@ -767,13 +711,9 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 display: none !important;
             }
             
-            .stats-grid {
+            .form-grid {
                 grid-template-columns: 1fr;
                 gap: 1.5rem;
-            }
-            
-            .activity-grid {
-                grid-template-columns: 1fr;
             }
         }
         
@@ -782,7 +722,7 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 padding: 1rem;
             }
             
-            .dashboard-content {
+            .page-content {
                 padding: 1.5rem;
             }
             
@@ -790,9 +730,12 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 font-size: 2.25rem;
             }
             
-            .stat-card,
-            .activity-card {
+            .form-container {
                 padding: 2rem;
+            }
+            
+            .form-title {
+                font-size: 1.5rem;
             }
             
             .sidebar {
@@ -805,18 +748,12 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 font-size: 1.875rem;
             }
             
-            .stat-value {
-                font-size: 2rem;
+            .form-container {
+                padding: 1.5rem;
             }
             
-            .activity-item {
-                padding: 1.25rem;
-            }
-            
-            .activity-item-header {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 0.5rem;
+            .form-grid {
+                gap: 1rem;
             }
             
             .sidebar {
@@ -824,7 +761,6 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             }
         }
         
-        /* Overlay for mobile */
         .overlay {
             position: fixed;
             top: 0;
@@ -846,12 +782,24 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
     </style>
 </head>
 <body>
+    <!-- Notifications -->
+    <?php if (isset($_SESSION['success'])): ?>
+        <script>
+            Notiflix.Notify.success('<?= $_SESSION['success'] ?>');
+        </script>
+        <?php unset($_SESSION['success']); ?>
+    <?php elseif (isset($_SESSION['failure'])): ?>
+        <script>
+            Notiflix.Notify.failure('<?= $_SESSION['failure'] ?>');
+        </script>
+        <?php unset($_SESSION['failure']); ?>
+    <?php endif; ?>
+
     <!-- Overlay for mobile -->
     <div class="overlay" id="overlay"></div>
     
-    <!-- Advanced Sidebar -->
-    <!-- Advanced Sidebar -->
-     <aside class="sidebar" id="sidebar">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <a href="#" class="logo">
                 <div class="logo-icon">
@@ -861,12 +809,12 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <div class="logo-title">Dashboard</div>
                 </div>
             </a>
-        </div>
+       </div>
         
        <nav class="nav-menu">
             <div class="nav-section">
                 <div class="nav-section-title">Principal</div>
-                <a href="index.php" class="nav-item active">
+                <a href="index.php" class="nav-item">
                     <div class="nav-icon"><i class="fas fa-chart-pie"></i></div>
                     <div class="nav-text">Dashboard</div>
                 </a>
@@ -894,7 +842,7 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
             <div class="nav-section">
                 <div class="nav-section-title">Sistema</div>
-                <a href="config.php" class="nav-item">
+                <a href="config.php" class="nav-item active">
                     <div class="nav-icon"><i class="fas fa-cogs"></i></div>
                     <div class="nav-text">Configurações</div>
                 </a>
@@ -920,7 +868,7 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     <!-- Main Content -->
     <main class="main-content" id="mainContent">
-        <!-- Enhanced Header -->
+        <!-- Header -->
         <header class="header">
             <div class="header-content">
                 <div style="display: flex; align-items: center; gap: 1rem;">
@@ -938,132 +886,136 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             </div>
         </header>
         
-        <!-- Dashboard Content -->
-        <div class="dashboard-content">
+        <!-- Page Content -->
+        <div class="page-content">
             <!-- Welcome Section -->
             <section class="welcome-section">
-                <h2 class="welcome-title">Olá, <?= htmlspecialchars($nome) ?>!</h2>
-                <p class="welcome-subtitle">Aqui está um resumo das principais métricas e atividades do sistema</p>
+                <h2 class="welcome-title">Configurações do Sistema</h2>
+                <p class="welcome-subtitle">Gerencie as configurações básicas e personalize sua plataforma</p>
             </section>
             
-            <!-- Enhanced Stats Grid -->
-            <section class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-header">
-                        <div class="stat-icon">
-                            <i class="fas fa-users"></i>
-                        </div>
-                        <div class="stat-trend">
-                            <i class="fas fa-arrow-up"></i>
-                            <span>+12%</span>
+            <!-- Form Container -->
+            <div class="form-container">
+                <form method="POST" enctype="multipart/form-data">
+                    <h2 class="form-title">
+                        <i class="fas fa-cogs"></i>
+                        Configurações Gerais
+                    </h2>
+                    
+                    <!-- Site Configuration Section -->
+                    <div class="form-section">
+                        <h3 class="section-title">
+                            <i class="fas fa-globe"></i>
+                            Informações do Site
+                        </h3>
+                        
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label class="form-label">
+                                    <i class="fas fa-tag"></i>
+                                    Nome do Site
+                                </label>
+                                <input type="text" name="nome_site" value="<?= htmlspecialchars($config['nome_site'] ?? '') ?>" class="form-input" placeholder="Digite o nome do seu site" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">
+                                    <i class="fas fa-image"></i>
+                                    Logo do Site
+                                </label>
+                                <div class="file-input-container">
+                                    <input type="file" name="logo" accept="image/jpeg, image/png" id="logo-upload" class="file-input">
+                                    <label for="logo-upload" class="file-input-label" id="file-label">
+                                        <i class="fas fa-cloud-upload-alt"></i>
+                                        <span>Clique para enviar logo (JPG, PNG)</span>
+                                    </label>
+                                </div>
+                                
+                                <?php if (!empty($config['logo'])): ?>
+                                    <div class="current-logo">
+                                        <p><i class="fas fa-image"></i> Logo atual:</p>
+                                        <img src="<?= htmlspecialchars($config['logo']) ?>" alt="Logo atual">
+                                    </div>
+                                <?php endif; ?>
+                            </div>
                         </div>
                     </div>
-                    <div class="stat-value"><?= number_format($total_usuarios, 0, ',', '.') ?></div>
-                    <div class="stat-label">Total de Usuários Ativos</div>
-                </div>
-                
-                <div class="stat-card">
-                    <div class="stat-header">
-                        <div class="stat-icon">
-                            <i class="fas fa-chart-line"></i>
-                        </div>
-                        <div class="stat-trend">
-                            <i class="fas fa-arrow-up"></i>
-                            <span>+8%</span>
-                        </div>
-                    </div>
-                    <div class="stat-value"><?= number_format($total_depositos, 0, ',', '.') ?></div>
-                    <div class="stat-label">Depósitos Confirmados</div>
-                </div>
-                
-                <div class="stat-card">
-                    <div class="stat-header">
-                        <div class="stat-icon">
-                            <i class="fas fa-wallet"></i>
-                        </div>
-                        <div class="stat-trend">
-                            <i class="fas fa-arrow-up"></i>
-                            <span>+24%</span>
+                    
+                    <!-- Financial Configuration Section -->
+                    <div class="form-section">
+                        <h3 class="section-title">
+                            <i class="fas fa-dollar-sign"></i>
+                            Configurações Financeiras
+                        </h3>
+                        
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label class="form-label">
+                                    <i class="fas fa-plus-circle"></i>
+                                    Depósito Mínimo (R$)
+                                </label>
+                                <input type="text" name="deposito_min" value="<?= htmlspecialchars($config['deposito_min'] ?? '0') ?>" class="form-input" placeholder="Ex: 10,00" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">
+                                    <i class="fas fa-minus-circle"></i>
+                                    Saque Mínimo (R$)
+                                </label>
+                                <input type="text" name="saque_min" value="<?= htmlspecialchars($config['saque_min'] ?? '0') ?>" class="form-input" placeholder="Ex: 20,00" required>
+                            </div>
                         </div>
                     </div>
-                    <div class="stat-value">R$ <?= number_format($total_saldo, 2, ',', '.') ?></div>
-                    <div class="stat-label">Saldo Total em Carteiras</div>
-                </div>
-            </section>
+                    
+                    <!-- Affiliate Configuration Section -->
+                    <div class="form-section">
+                        <h3 class="section-title">
+                            <i class="fas fa-handshake"></i>
+                            Configurações de Afiliados
+                        </h3>
+                        
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label class="form-label">
+                                    <i class="fas fa-user-plus"></i>
+                                    CPA Padrão (R$)
+                                </label>
+                                <input type="text" name="cpa_padrao" value="<?= htmlspecialchars($config['cpa_padrao'] ?? '0') ?>" class="form-input" placeholder="Ex: 5,00" required>
+                                <p style="color: #6b7280; font-size: 0.8rem; margin-top: 0.5rem;">
+                                    <i class="fas fa-info-circle"></i> 
+                                    Comissão fixa paga por cada novo cadastro indicado
+                                </p>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">
+                                    <i class="fas fa-chart-line"></i>
+                                    RevShare Padrão (%)
+                                </label>
+                                <div class="input-container">
+                                    <input type="text" name="revshare_padrao" value="<?= htmlspecialchars($config['revshare_padrao'] ?? '0') ?>" class="form-input percentage" placeholder="Ex: 10,00" required>
+                                    <span class="percentage-symbol">%</span>
+                                </div>
+                                <p style="color: #6b7280; font-size: 0.8rem; margin-top: 0.5rem;">
+                                    <i class="fas fa-info-circle"></i> 
+                                    Percentual sobre as perdas dos usuários indicados
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" name="salvar_config" class="submit-button">
+                        <i class="fas fa-save"></i>
+                        Salvar Configurações
+                    </button>
+                </form>
+            </div>
             
-            <!-- Enhanced Activity Section -->
-            <section class="activity-grid">
-                <!-- Recent Deposits -->
-                <div class="activity-card">
-                    <div class="activity-header">
-                        <div class="activity-icon">
-                            <i class="fas fa-money-bill-transfer"></i>
-                        </div>
-                        <h3 class="activity-title">Depósitos Recentes</h3>
-                    </div>
-                    
-                    <?php if (!empty($depositos_recentes)): ?>
-                        <?php foreach ($depositos_recentes as $deposito): ?>
-                            <div class="activity-item">
-                                <div class="activity-item-header">
-                                    <span class="activity-name"><?= htmlspecialchars($deposito['nome']) ?></span>
-                                    <span class="activity-value">R$ <?= number_format($deposito['valor'], 2, ',', '.') ?></span>
-                                </div>
-                                <div class="activity-meta">
-                                    <div class="activity-status">
-                                        <div class="status-dot"></div>
-                                        <span>Confirmado</span>
-                                    </div>
-                                    <span><?= date('d/m/Y H:i', strtotime($deposito['updated_at'])) ?></span>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        <div class="empty-state">
-                            <i class="fas fa-inbox"></i>
-                            <p>Nenhum depósito confirmado recentemente</p>
-                        </div>
-                    <?php endif; ?>
-                </div>
-                
-                <!-- Pending Withdrawals -->
-                <div class="activity-card">
-                    <div class="activity-header">
-                        <div class="activity-icon">
-                            <i class="fas fa-money-bill-wave"></i>
-                        </div>
-                        <h3 class="activity-title">Saques Pendentes</h3>
-                    </div>
-                    
-                    <?php if (!empty($saques_recentes)): ?>
-                        <?php foreach ($saques_recentes as $saque): ?>
-                            <div class="activity-item">
-                                <div class="activity-item-header">
-                                    <span class="activity-name"><?= htmlspecialchars($saque['nome']) ?></span>
-                                    <span class="activity-value">R$ <?= number_format($saque['valor'], 2, ',', '.') ?></span>
-                                </div>
-                                <div class="activity-meta">
-                                    <div class="activity-status" style="background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.2); color: #f59e0b;">
-                                        <div class="status-dot" style="background: #f59e0b;"></div>
-                                        <span>Pendente</span>
-                                    </div>
-                                    <span><?= date('d/m/Y H:i', strtotime($saque['updated_at'])) ?></span>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        <div class="empty-state">
-                            <i class="fas fa-check-circle"></i>
-                            <p>Nenhum saque pendente no momento</p>
-                        </div>
-                    <?php endif; ?>
-                </div>
-            </section>
         </div>
     </main>
     
     <script>
-        // Mobile menu toggle with smooth animations
+        // Mobile menu toggle
         const menuToggle = document.getElementById('menuToggle');
         const sidebar = document.getElementById('sidebar');
         const mainContent = document.getElementById('mainContent');
@@ -1077,7 +1029,7 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 overlay.classList.add('active');
             } else {
                 sidebar.classList.add('hidden');
-                overlay.classList.remove('active');
+                overlay.classList.add('active');
             }
         });
         
@@ -1110,83 +1062,83 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             });
         });
         
+        // File input enhancement
+        document.getElementById('logo-upload').addEventListener('change', function(e) {
+            const label = document.getElementById('file-label');
+            const fileName = e.target.files[0]?.name;
+            
+            if (fileName) {
+                label.innerHTML = `
+                    <i class="fas fa-check-circle"></i>
+                    <span>${fileName}</span>
+                `;
+                label.classList.add('has-file');
+            } else {
+                label.innerHTML = `
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <span>Clique para enviar logo (JPG, PNG)</span>
+                `;
+                label.classList.remove('has-file');
+            }
+        });
+        
+        // Input formatting for currency fields
+        function formatCurrency(input) {
+            let value = input.value.replace(/\D/g, '');
+            if (value === '') return;
+            value = (value / 100).toFixed(2) + '';
+            value = value.replace(".", ",");
+            value = value.replace(/(\d)(\d{3}),/, "$1.$2,");
+            input.value = value;
+        }
+        
+        // Input formatting for percentage fields
+        function formatPercentage(input) {
+            let value = input.value.replace(/[^\d,]/g, '');
+            if (value.includes(',')) {
+                let parts = value.split(',');
+                if (parts[1] && parts[1].length > 2) {
+                    parts[1] = parts[1].substring(0, 2);
+                }
+                value = parts.join(',');
+            }
+            input.value = value;
+        }
+        
+        // Apply currency formatting to financial inputs
+        document.querySelectorAll('input[name="deposito_min"], input[name="saque_min"], input[name="cpa_padrao"]').forEach(input => {
+            input.addEventListener('input', function() {
+                formatCurrency(this);
+            });
+        });
+        
+        // Apply percentage formatting to revshare input
+        document.querySelector('input[name="revshare_padrao"]').addEventListener('input', function() {
+            formatPercentage(this);
+        });
+        
         // Smooth scroll behavior
         document.documentElement.style.scrollBehavior = 'smooth';
         
-        // Add loading animation on page load
+        // Initialize
         document.addEventListener('DOMContentLoaded', () => {
-            console.log('%c⚡ Dashboard Admin Pro carregado!', 'color: #22c55e; font-size: 16px; font-weight: bold;');
+            console.log('%c⚙️ Configurações do Sistema carregadas!', 'color: #22c55e; font-size: 16px; font-weight: bold;');
             
             // Check if mobile on load
             if (window.innerWidth <= 1024) {
                 sidebar.classList.add('hidden');
             }
             
-            // Animate stats cards on load
-            const statCards = document.querySelectorAll('.stat-card');
-            statCards.forEach((card, index) => {
-                card.style.opacity = '0';
-                card.style.transform = 'translateY(20px)';
-                setTimeout(() => {
-                    card.style.transition = 'all 0.6s ease';
-                    card.style.opacity = '1';
-                    card.style.transform = 'translateY(0)';
-                }, index * 150);
-            });
-            
-            // Animate activity cards
-            const activityCards = document.querySelectorAll('.activity-card');
-            activityCards.forEach((card, index) => {
-                card.style.opacity = '0';
-                card.style.transform = 'translateY(20px)';
-                setTimeout(() => {
-                    card.style.transition = 'all 0.6s ease';
-                    card.style.opacity = '1';
-                    card.style.transform = 'translateY(0)';
-                }, (statCards.length * 150) + (index * 200));
-            });
+            // Animate form container on load
+            const formContainer = document.querySelector('.form-container');
+            formContainer.style.opacity = '0';
+            formContainer.style.transform = 'translateY(20px)';
+            setTimeout(() => {
+                formContainer.style.transition = 'all 0.6s ease';
+                formContainer.style.opacity = '1';
+                formContainer.style.transform = 'translateY(0)';
+            }, 300);
         });
-        
-        // Add click ripple effect to cards
-        document.querySelectorAll('.stat-card, .activity-card').forEach(card => {
-            card.addEventListener('click', function(e) {
-                const ripple = document.createElement('div');
-                const rect = this.getBoundingClientRect();
-                const size = 60;
-                const x = e.clientX - rect.left - size / 2;
-                const y = e.clientY - rect.top - size / 2;
-                
-                ripple.style.width = ripple.style.height = size + 'px';
-                ripple.style.left = x + 'px';
-                ripple.style.top = y + 'px';
-                ripple.style.position = 'absolute';
-                ripple.style.background = 'rgba(34, 197, 94, 0.3)';
-                ripple.style.borderRadius = '50%';
-                ripple.style.transform = 'scale(0)';
-                ripple.style.animation = 'ripple 0.6s linear';
-                ripple.style.pointerEvents = 'none';
-                
-                this.style.position = 'relative';
-                this.style.overflow = 'hidden';
-                this.appendChild(ripple);
-                
-                setTimeout(() => {
-                    ripple.remove();
-                }, 600);
-            });
-        });
-        
-        // Add CSS animation for ripple effect
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes ripple {
-                to {
-                    transform: scale(4);
-                    opacity: 0;
-                }
-            }
-        `;
-        document.head.appendChild(style);
     </script>
 </body>
 </html>

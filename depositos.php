@@ -6,7 +6,7 @@ include '../includes/notiflix.php';
 $usuarioId = $_SESSION['usuario_id'];
 $admin = ($stmt = $pdo->prepare("SELECT admin FROM usuarios WHERE id = ?"))->execute([$usuarioId]) ? $stmt->fetchColumn() : null;
 
-if( $admin != 1){
+if ($admin != 1) {
     $_SESSION['message'] = ['type' => 'warning', 'text' => 'Você não é um administrador!'];
     header("Location: /");
     exit;
@@ -15,52 +15,18 @@ if( $admin != 1){
 $nome = ($stmt = $pdo->prepare("SELECT nome FROM usuarios WHERE id = ?"))->execute([$usuarioId]) ? $stmt->fetchColumn() : null;
 $nome = $nome ? explode(' ', $nome)[0] : null;
 
-$total_usuarios = ($stmt = $pdo->prepare("SELECT COUNT(*) FROM usuarios"))->execute() ? $stmt->fetchColumn() : 0;
-$total_depositos = ($stmt = $pdo->prepare("SELECT COUNT(*) FROM depositos WHERE status = 1"))->execute() ? $stmt->fetchColumn() : 0;
-$total_saldo = ($stmt = $pdo->prepare("SELECT SUM(saldo) FROM usuarios"))->execute() ? $stmt->fetchColumn() : 0;
+$stmt = $pdo->query("SELECT depositos.id, depositos.user_id, depositos.transactionId, depositos.valor, depositos.status, depositos.updated_at, usuarios.nome 
+                     FROM depositos 
+                     JOIN usuarios ON depositos.user_id = usuarios.id
+                     ORDER BY depositos.updated_at DESC");
+$depositos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-$sql = "
-    SELECT 
-        u.nome, 
-        d.valor, 
-        d.updated_at 
-    FROM 
-        depositos d
-    INNER JOIN 
-        usuarios u ON d.user_id = u.id
-    WHERE 
-        d.status = 'PAID'
-    ORDER BY 
-        d.updated_at DESC
-    LIMIT 5
-";
-
-$stmt = $pdo->prepare($sql);
-$stmt->execute();
-
-$depositos_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-$sql = "
-    SELECT 
-        u.nome, 
-        s.valor, 
-        s.updated_at 
-    FROM 
-        saques s
-    INNER JOIN 
-        usuarios u ON s.user_id = u.id
-    WHERE 
-        s.status = 'PENDING'
-    ORDER BY 
-        s.updated_at DESC
-    LIMIT 5
-";
-
-$stmt = $pdo->prepare($sql);
-$stmt->execute();
-
-$saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
+// Calculate statistics
+$total_depositos = count($depositos);
+$depositos_aprovados = array_filter($depositos, function($d) { return $d['status'] == 'PAID'; });
+$depositos_pendentes = array_filter($depositos, function($d) { return $d['status'] != 'PAID'; });
+$valor_total_aprovado = array_sum(array_column($depositos_aprovados, 'valor'));
+$valor_total_pendente = array_sum(array_column($depositos_pendentes, 'valor'));
 ?>
 
 <!DOCTYPE html>
@@ -68,7 +34,7 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $nomeSite ?? 'Admin'; ?> - Dashboard Administrativo</title>
+    <title><?php echo $nomeSite ?? 'Admin'; ?> - Gerenciar Depósitos</title>
     
     <!-- TailwindCSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -416,39 +382,8 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             gap: 1rem;
         }
         
-        .notification-btn {
-            position: relative;
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.2);
-            color: #22c55e;
-            padding: 0.75rem;
-            border-radius: 12px;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
-        .notification-btn:hover {
-            background: rgba(34, 197, 94, 0.2);
-            transform: scale(1.05);
-        }
-        
-        .notification-badge {
-            position: absolute;
-            top: -4px;
-            right: -4px;
-            background: #ef4444;
-            color: white;
-            font-size: 0.6rem;
-            font-weight: 600;
-            padding: 0.2rem 0.4rem;
-            border-radius: 6px;
-            min-width: 16px;
-            text-align: center;
-        }
-        
-        /* Enhanced Stats Cards */
-        .dashboard-content {
+        /* Main Page Content */
+        .page-content {
             padding: 2.5rem;
         }
         
@@ -473,157 +408,104 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             font-weight: 400;
         }
         
+        /* Stats Cards */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 2rem;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
             margin-bottom: 3rem;
         }
         
-        .stat-card {
+        .mini-stat-card {
             background: linear-gradient(135deg, rgba(20, 20, 20, 0.8) 0%, rgba(10, 10, 10, 0.9) 100%);
             border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 20px;
-            padding: 2.5rem;
+            border-radius: 16px;
+            padding: 1.5rem;
             position: relative;
             overflow: hidden;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.3s ease;
             backdrop-filter: blur(20px);
         }
         
-        .stat-card::before {
+        .mini-stat-card::before {
             content: '';
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
-            height: 4px;
-            background: linear-gradient(90deg, #22c55e, #16a34a, #22c55e);
+            height: 3px;
+            background: linear-gradient(90deg, #22c55e, #16a34a);
             opacity: 0;
             transition: opacity 0.3s ease;
         }
         
-        .stat-card::after {
-            content: '';
-            position: absolute;
-            top: 50%;
-            right: -50px;
-            width: 200px;
-            height: 200px;
-            background: radial-gradient(circle, rgba(34, 197, 94, 0.1) 0%, transparent 70%);
-            transform: translateY(-50%);
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-        
-        .stat-card:hover::before,
-        .stat-card:hover::after {
+        .mini-stat-card:hover::before {
             opacity: 1;
         }
         
-        .stat-card:hover {
-            transform: translateY(-8px);
+        .mini-stat-card:hover {
+            transform: translateY(-4px);
             border-color: rgba(34, 197, 94, 0.3);
-            box-shadow: 
-                0 20px 60px rgba(0, 0, 0, 0.4),
-                0 0 40px rgba(34, 197, 94, 0.1);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
         }
         
-        .stat-header {
+        .mini-stat-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 2rem;
+            margin-bottom: 1rem;
         }
         
-        .stat-icon {
-            width: 64px;
-            height: 64px;
+        .mini-stat-icon {
+            width: 40px;
+            height: 40px;
             background: linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%);
-            border: 2px solid rgba(34, 197, 94, 0.3);
-            border-radius: 16px;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
             color: #22c55e;
-            font-size: 1.5rem;
-            position: relative;
-            box-shadow: 0 8px 20px rgba(34, 197, 94, 0.2);
+            font-size: 1rem;
         }
         
-        .stat-value {
-            font-size: 2.75rem;
+        .mini-stat-icon.warning {
+            background: linear-gradient(135deg, rgba(251, 191, 36, 0.2) 0%, rgba(251, 191, 36, 0.1) 100%);
+            border-color: rgba(251, 191, 36, 0.3);
+            color: #f59e0b;
+        }
+        
+        .mini-stat-value {
+            font-size: 1.75rem;
             font-weight: 800;
             color: #ffffff;
-            margin-bottom: 0.5rem;
-            line-height: 1;
+            margin-bottom: 0.25rem;
         }
         
-        .stat-label {
+        .mini-stat-label {
             color: #a1a1aa;
-            font-size: 1rem;
+            font-size: 0.875rem;
             font-weight: 500;
         }
         
-        .stat-trend {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.875rem;
-            font-weight: 600;
-            color: #22c55e;
-        }
-        
-        /* Enhanced Activity Cards */
-        .activity-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
-            gap: 2rem;
-        }
-        
-        .activity-card {
+        /* Filter Section */
+        .filter-section {
             background: linear-gradient(135deg, rgba(20, 20, 20, 0.8) 0%, rgba(10, 10, 10, 0.9) 100%);
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 20px;
-            padding: 2.5rem;
-            transition: all 0.3s ease;
+            padding: 2rem;
+            margin-bottom: 2rem;
             backdrop-filter: blur(20px);
-            position: relative;
-            overflow: hidden;
         }
         
-        .activity-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 100px;
-            height: 100px;
-            background: radial-gradient(circle, rgba(34, 197, 94, 0.1) 0%, transparent 70%);
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-        
-        .activity-card:hover::before {
-            opacity: 1;
-        }
-        
-        .activity-card:hover {
-            border-color: rgba(34, 197, 94, 0.2);
-            transform: translateY(-4px);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-        }
-        
-        .activity-header {
+        .filter-header {
             display: flex;
             align-items: center;
             gap: 1rem;
-            margin-bottom: 2rem;
-            padding-bottom: 1rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 1.5rem;
         }
         
-        .activity-icon {
+        .filter-icon-container {
             width: 48px;
             height: 48px;
             background: linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%);
@@ -636,111 +518,186 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             font-size: 1.125rem;
         }
         
-        .activity-title {
+        .filter-title {
             font-size: 1.25rem;
             font-weight: 600;
             color: #ffffff;
         }
         
-        .activity-item {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 1rem;
-            transition: all 0.3s ease;
-            position: relative;
+        .filter-buttons {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
         }
         
-        .activity-item::before {
+        .filter-btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(0, 0, 0, 0.3);
+            color: #a1a1aa;
+        }
+        
+        .filter-btn.active,
+        .filter-btn:hover {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+            border-color: rgba(34, 197, 94, 0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(34, 197, 94, 0.3);
+        }
+        
+        /* Deposit Cards */
+        .deposits-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            gap: 1.5rem;
+        }
+        
+        .deposit-card {
+            background: linear-gradient(135deg, rgba(20, 20, 20, 0.8) 0%, rgba(10, 10, 10, 0.9) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 2rem;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(20px);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .deposit-card::before {
             content: '';
             position: absolute;
-            left: 0;
             top: 0;
-            bottom: 0;
-            width: 3px;
-            background: linear-gradient(135deg, #22c55e, #16a34a);
+            right: 0;
+            width: 100px;
+            height: 100px;
+            background: radial-gradient(circle, rgba(34, 197, 94, 0.1) 0%, transparent 70%);
             opacity: 0;
             transition: opacity 0.3s ease;
         }
         
-        .activity-item:hover::before {
+        .deposit-card:hover::before {
             opacity: 1;
         }
         
-        .activity-item:hover {
-            background: rgba(34, 197, 94, 0.05);
+        .deposit-card:hover {
+            transform: translateY(-4px);
             border-color: rgba(34, 197, 94, 0.2);
-            transform: translateX(4px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
         }
         
-        .activity-item:last-child {
-            margin-bottom: 0;
-        }
-        
-        .activity-item-header {
+        .deposit-header {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.75rem;
+            align-items: flex-start;
+            margin-bottom: 1.5rem;
         }
         
-        .activity-name {
-            font-weight: 600;
-            color: #ffffff;
-            font-size: 1rem;
-        }
-        
-        .activity-value {
+        .deposit-user {
+            font-size: 1.25rem;
             font-weight: 700;
-            color: #22c55e;
-            font-size: 1.1rem;
+            color: #ffffff;
+            margin-bottom: 0.5rem;
         }
         
-        .activity-meta {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.875rem;
+        .deposit-transaction {
+            font-size: 0.8rem;
             color: #6b7280;
+            font-family: 'Monaco', 'Consolas', monospace;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 0.25rem 0.5rem;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
         
-        .activity-status {
-            display: inline-flex;
+        .deposit-status {
+            display: flex;
             align-items: center;
-            gap: 0.25rem;
-            padding: 0.25rem 0.75rem;
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.2);
-            border-radius: 6px;
-            font-size: 0.75rem;
-            font-weight: 500;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 12px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .deposit-status.approved {
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(34, 197, 94, 0.1));
+            border: 1px solid rgba(34, 197, 94, 0.3);
             color: #22c55e;
+        }
+        
+        .deposit-status.pending {
+            background: linear-gradient(135deg, rgba(251, 191, 36, 0.2), rgba(251, 191, 36, 0.1));
+            border: 1px solid rgba(251, 191, 36, 0.3);
+            color: #f59e0b;
         }
         
         .status-dot {
-            width: 6px;
-            height: 6px;
-            background: #22c55e;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
+            background: currentColor;
         }
         
+        .deposit-value {
+            font-size: 2rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 1rem;
+        }
+        
+        .deposit-date {
+            color: #9ca3af;
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .deposit-date i {
+            color: #6b7280;
+        }
+        
+        /* Empty State */
         .empty-state {
             text-align: center;
             padding: 4rem 2rem;
             color: #6b7280;
+            background: linear-gradient(135deg, rgba(20, 20, 20, 0.3) 0%, rgba(10, 10, 10, 0.4) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
         }
         
         .empty-state i {
-            font-size: 3rem;
-            margin-bottom: 1rem;
+            font-size: 4rem;
+            margin-bottom: 1.5rem;
             opacity: 0.3;
             color: #374151;
         }
         
+        .empty-state h3 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #9ca3af;
+            margin-bottom: 0.5rem;
+        }
+        
         .empty-state p {
             font-size: 1rem;
-            font-weight: 500;
+            font-weight: 400;
         }
         
         /* Mobile Styles */
@@ -768,11 +725,10 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             }
             
             .stats-grid {
-                grid-template-columns: 1fr;
-                gap: 1.5rem;
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             }
             
-            .activity-grid {
+            .deposits-grid {
                 grid-template-columns: 1fr;
             }
         }
@@ -782,7 +738,7 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 padding: 1rem;
             }
             
-            .dashboard-content {
+            .page-content {
                 padding: 1.5rem;
             }
             
@@ -790,9 +746,16 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 font-size: 2.25rem;
             }
             
-            .stat-card,
-            .activity-card {
-                padding: 2rem;
+            .deposit-card {
+                padding: 1.5rem;
+            }
+            
+            .filter-buttons {
+                flex-direction: column;
+            }
+            
+            .filter-btn {
+                text-align: center;
             }
             
             .sidebar {
@@ -805,18 +768,18 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 font-size: 1.875rem;
             }
             
-            .stat-value {
-                font-size: 2rem;
+            .stats-grid {
+                grid-template-columns: 1fr;
             }
             
-            .activity-item {
-                padding: 1.25rem;
-            }
-            
-            .activity-item-header {
+            .deposit-header {
                 flex-direction: column;
                 align-items: flex-start;
-                gap: 0.5rem;
+                gap: 1rem;
+            }
+            
+            .deposit-value {
+                font-size: 1.5rem;
             }
             
             .sidebar {
@@ -846,12 +809,24 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
     </style>
 </head>
 <body>
+    <!-- Notifications -->
+    <?php if (isset($_SESSION['success'])): ?>
+        <script>
+            Notiflix.Notify.success('<?= $_SESSION['success'] ?>');
+        </script>
+        <?php unset($_SESSION['success']); ?>
+    <?php elseif (isset($_SESSION['failure'])): ?>
+        <script>
+            Notiflix.Notify.failure('<?= $_SESSION['failure'] ?>');
+        </script>
+        <?php unset($_SESSION['failure']); ?>
+    <?php endif; ?>
+
     <!-- Overlay for mobile -->
     <div class="overlay" id="overlay"></div>
     
     <!-- Advanced Sidebar -->
-    <!-- Advanced Sidebar -->
-     <aside class="sidebar" id="sidebar">
+    <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <a href="#" class="logo">
                 <div class="logo-icon">
@@ -861,12 +836,12 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <div class="logo-title">Dashboard</div>
                 </div>
             </a>
-        </div>
+       </div>
         
        <nav class="nav-menu">
             <div class="nav-section">
                 <div class="nav-section-title">Principal</div>
-                <a href="index.php" class="nav-item active">
+                <a href="index.php" class="nav-item">
                     <div class="nav-icon"><i class="fas fa-chart-pie"></i></div>
                     <div class="nav-text">Dashboard</div>
                 </a>
@@ -882,7 +857,7 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <div class="nav-icon"><i class="fas fa-user-plus"></i></div>
                     <div class="nav-text">Afiliados</div>
                 </a>
-                <a href="depositos.php" class="nav-item">
+                <a href="depositos.php" class="nav-item active">
                     <div class="nav-icon"><i class="fas fa-credit-card"></i></div>
                     <div class="nav-text">Depósitos</div>
                 </a>
@@ -938,126 +913,128 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             </div>
         </header>
         
-        <!-- Dashboard Content -->
-        <div class="dashboard-content">
+        <!-- Page Content -->
+        <div class="page-content">
             <!-- Welcome Section -->
             <section class="welcome-section">
-                <h2 class="welcome-title">Olá, <?= htmlspecialchars($nome) ?>!</h2>
-                <p class="welcome-subtitle">Aqui está um resumo das principais métricas e atividades do sistema</p>
+                <h2 class="welcome-title">Controle de Depósitos</h2>
+                <p class="welcome-subtitle">Monitore e gerencie todos os depósitos realizados na plataforma</p>
             </section>
             
-            <!-- Enhanced Stats Grid -->
+            <!-- Stats Grid -->
             <section class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-header">
-                        <div class="stat-icon">
-                            <i class="fas fa-users"></i>
-                        </div>
-                        <div class="stat-trend">
-                            <i class="fas fa-arrow-up"></i>
-                            <span>+12%</span>
+                <div class="mini-stat-card">
+                    <div class="mini-stat-header">
+                        <div class="mini-stat-icon">
+                            <i class="fas fa-receipt"></i>
                         </div>
                     </div>
-                    <div class="stat-value"><?= number_format($total_usuarios, 0, ',', '.') ?></div>
-                    <div class="stat-label">Total de Usuários Ativos</div>
+                    <div class="mini-stat-value"><?= number_format($total_depositos, 0, ',', '.') ?></div>
+                    <div class="mini-stat-label">Total de Depósitos</div>
                 </div>
                 
-                <div class="stat-card">
-                    <div class="stat-header">
-                        <div class="stat-icon">
-                            <i class="fas fa-chart-line"></i>
-                        </div>
-                        <div class="stat-trend">
-                            <i class="fas fa-arrow-up"></i>
-                            <span>+8%</span>
+                <div class="mini-stat-card">
+                    <div class="mini-stat-header">
+                        <div class="mini-stat-icon">
+                            <i class="fas fa-check-circle"></i>
                         </div>
                     </div>
-                    <div class="stat-value"><?= number_format($total_depositos, 0, ',', '.') ?></div>
-                    <div class="stat-label">Depósitos Confirmados</div>
+                    <div class="mini-stat-value"><?= number_format(count($depositos_aprovados), 0, ',', '.') ?></div>
+                    <div class="mini-stat-label">Depósitos Aprovados</div>
                 </div>
                 
-                <div class="stat-card">
-                    <div class="stat-header">
-                        <div class="stat-icon">
-                            <i class="fas fa-wallet"></i>
-                        </div>
-                        <div class="stat-trend">
-                            <i class="fas fa-arrow-up"></i>
-                            <span>+24%</span>
+                <div class="mini-stat-card">
+                    <div class="mini-stat-header">
+                        <div class="mini-stat-icon warning">
+                            <i class="fas fa-clock"></i>
                         </div>
                     </div>
-                    <div class="stat-value">R$ <?= number_format($total_saldo, 2, ',', '.') ?></div>
-                    <div class="stat-label">Saldo Total em Carteiras</div>
+                    <div class="mini-stat-value"><?= number_format(count($depositos_pendentes), 0, ',', '.') ?></div>
+                    <div class="mini-stat-label">Depósitos Pendentes</div>
+                </div>
+                
+                <div class="mini-stat-card">
+                    <div class="mini-stat-header">
+                        <div class="mini-stat-icon">
+                            <i class="fas fa-dollar-sign"></i>
+                        </div>
+                    </div>
+                    <div class="mini-stat-value">R$ <?= number_format($valor_total_aprovado, 2, ',', '.') ?></div>
+                    <div class="mini-stat-label">Valor Total Aprovado</div>
                 </div>
             </section>
             
-            <!-- Enhanced Activity Section -->
-            <section class="activity-grid">
-                <!-- Recent Deposits -->
-                <div class="activity-card">
-                    <div class="activity-header">
-                        <div class="activity-icon">
-                            <i class="fas fa-money-bill-transfer"></i>
-                        </div>
-                        <h3 class="activity-title">Depósitos Recentes</h3>
+            <!-- Filter Section -->
+            <section class="filter-section">
+                <div class="filter-header">
+                    <div class="filter-icon-container">
+                        <i class="fas fa-filter"></i>
                     </div>
-                    
-                    <?php if (!empty($depositos_recentes)): ?>
-                        <?php foreach ($depositos_recentes as $deposito): ?>
-                            <div class="activity-item">
-                                <div class="activity-item-header">
-                                    <span class="activity-name"><?= htmlspecialchars($deposito['nome']) ?></span>
-                                    <span class="activity-value">R$ <?= number_format($deposito['valor'], 2, ',', '.') ?></span>
-                                </div>
-                                <div class="activity-meta">
-                                    <div class="activity-status">
-                                        <div class="status-dot"></div>
-                                        <span>Confirmado</span>
+                    <h3 class="filter-title">Filtrar Depósitos</h3>
+                </div>
+                
+                <div class="filter-buttons">
+                    <button class="filter-btn active" onclick="filterDeposits('all')">
+                        <i class="fas fa-list"></i>
+                        Todos os Depósitos
+                    </button>
+                    <button class="filter-btn" onclick="filterDeposits('PAID')">
+                        <i class="fas fa-check-circle"></i>
+                        Aprovados
+                    </button>
+                    <button class="filter-btn" onclick="filterDeposits('PENDING')">
+                        <i class="fas fa-clock"></i>
+                        Pendentes
+                    </button>
+                    <button class="filter-btn" onclick="filterDeposits('today')">
+                        <i class="fas fa-calendar-day"></i>
+                        Hoje
+                    </button>
+                </div>
+            </section>
+            
+            <!-- Deposits Section -->
+            <section>
+                <?php if (empty($depositos)): ?>
+                    <div class="empty-state">
+                        <i class="fas fa-receipt"></i>
+                        <h3>Nenhum depósito encontrado</h3>
+                        <p>Não há depósitos registrados no sistema ainda</p>
+                    </div>
+                <?php else: ?>
+                    <div class="deposits-grid" id="depositsGrid">
+                        <?php foreach ($depositos as $deposito): ?>
+                            <div class="deposit-card" 
+                                 data-status="<?= $deposito['status'] ?>" 
+                                 data-date="<?= date('Y-m-d', strtotime($deposito['updated_at'])) ?>">
+                                <div class="deposit-header">
+                                    <div>
+                                        <h3 class="deposit-user"><?= htmlspecialchars($deposito['nome']) ?></h3>
+                                        <?php if (!empty($deposito['transactionId'])): ?>
+                                            <div class="deposit-transaction">
+                                                ID: <?= htmlspecialchars($deposito['transactionId']) ?>
+                                            </div>
+                                        <?php endif; ?>
                                     </div>
+                                    
+                                    <div class="deposit-status <?= $deposito['status'] == 'PAID' ? 'approved' : 'pending' ?>">
+                                        <div class="status-dot"></div>
+                                        <span><?= $deposito['status'] == 'PAID' ? 'Aprovado' : 'Pendente' ?></span>
+                                    </div>
+                                </div>
+                                
+                                <div class="deposit-value">
+                                    R$ <?= number_format($deposito['valor'], 2, ',', '.') ?>
+                                </div>
+                                
+                                <div class="deposit-date">
+                                    <i class="fas fa-calendar"></i>
                                     <span><?= date('d/m/Y H:i', strtotime($deposito['updated_at'])) ?></span>
                                 </div>
                             </div>
                         <?php endforeach; ?>
-                    <?php else: ?>
-                        <div class="empty-state">
-                            <i class="fas fa-inbox"></i>
-                            <p>Nenhum depósito confirmado recentemente</p>
-                        </div>
-                    <?php endif; ?>
-                </div>
-                
-                <!-- Pending Withdrawals -->
-                <div class="activity-card">
-                    <div class="activity-header">
-                        <div class="activity-icon">
-                            <i class="fas fa-money-bill-wave"></i>
-                        </div>
-                        <h3 class="activity-title">Saques Pendentes</h3>
                     </div>
-                    
-                    <?php if (!empty($saques_recentes)): ?>
-                        <?php foreach ($saques_recentes as $saque): ?>
-                            <div class="activity-item">
-                                <div class="activity-item-header">
-                                    <span class="activity-name"><?= htmlspecialchars($saque['nome']) ?></span>
-                                    <span class="activity-value">R$ <?= number_format($saque['valor'], 2, ',', '.') ?></span>
-                                </div>
-                                <div class="activity-meta">
-                                    <div class="activity-status" style="background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.2); color: #f59e0b;">
-                                        <div class="status-dot" style="background: #f59e0b;"></div>
-                                        <span>Pendente</span>
-                                    </div>
-                                    <span><?= date('d/m/Y H:i', strtotime($saque['updated_at'])) ?></span>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        <div class="empty-state">
-                            <i class="fas fa-check-circle"></i>
-                            <p>Nenhum saque pendente no momento</p>
-                        </div>
-                    <?php endif; ?>
-                </div>
+                <?php endif; ?>
             </section>
         </div>
     </main>
@@ -1077,7 +1054,7 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 overlay.classList.add('active');
             } else {
                 sidebar.classList.add('hidden');
-                overlay.classList.remove('active');
+                overlay.classList.add('active');
             }
         });
         
@@ -1110,20 +1087,79 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             });
         });
         
+        // Filter functionality
+        function filterDeposits(filter) {
+            const cards = document.querySelectorAll('.deposit-card');
+            const buttons = document.querySelectorAll('.filter-btn');
+            const today = new Date().toISOString().split('T')[0];
+            
+            // Update active button
+            buttons.forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            cards.forEach(card => {
+                let show = false;
+                
+                switch(filter) {
+                    case 'all':
+                        show = true;
+                        break;
+                    case 'PAID':
+                        show = card.dataset.status === 'PAID';
+                        break;
+                    case 'PENDING':
+                        show = card.dataset.status !== 'PAID';
+                        break;
+                    case 'today':
+                        show = card.dataset.date === today;
+                        break;
+                }
+                
+                if (show) {
+                    card.style.display = 'block';
+                    card.style.opacity = '0';
+                    card.style.transform = 'translateY(20px)';
+                    setTimeout(() => {
+                        card.style.transition = 'all 0.3s ease';
+                        card.style.opacity = '1';
+                        card.style.transform = 'translateY(0)';
+                    }, 50);
+                } else {
+                    card.style.opacity = '0';
+                    card.style.transform = 'translateY(-20px)';
+                    setTimeout(() => {
+                        card.style.display = 'none';
+                    }, 300);
+                }
+            });
+        }
+        
         // Smooth scroll behavior
         document.documentElement.style.scrollBehavior = 'smooth';
         
-        // Add loading animation on page load
+        // Initialize
         document.addEventListener('DOMContentLoaded', () => {
-            console.log('%c⚡ Dashboard Admin Pro carregado!', 'color: #22c55e; font-size: 16px; font-weight: bold;');
+            console.log('%c💳 Gerenciamento de Depósitos carregado!', 'color: #22c55e; font-size: 16px; font-weight: bold;');
             
             // Check if mobile on load
             if (window.innerWidth <= 1024) {
                 sidebar.classList.add('hidden');
             }
             
-            // Animate stats cards on load
-            const statCards = document.querySelectorAll('.stat-card');
+            // Animate cards on load
+            const depositCards = document.querySelectorAll('.deposit-card');
+            depositCards.forEach((card, index) => {
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(20px)';
+                setTimeout(() => {
+                    card.style.transition = 'all 0.6s ease';
+                    card.style.opacity = '1';
+                    card.style.transform = 'translateY(0)';
+                }, index * 100);
+            });
+            
+            // Animate stats cards
+            const statCards = document.querySelectorAll('.mini-stat-card');
             statCards.forEach((card, index) => {
                 card.style.opacity = '0';
                 card.style.transform = 'translateY(20px)';
@@ -1133,60 +1169,7 @@ $saques_recentes = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     card.style.transform = 'translateY(0)';
                 }, index * 150);
             });
-            
-            // Animate activity cards
-            const activityCards = document.querySelectorAll('.activity-card');
-            activityCards.forEach((card, index) => {
-                card.style.opacity = '0';
-                card.style.transform = 'translateY(20px)';
-                setTimeout(() => {
-                    card.style.transition = 'all 0.6s ease';
-                    card.style.opacity = '1';
-                    card.style.transform = 'translateY(0)';
-                }, (statCards.length * 150) + (index * 200));
-            });
         });
-        
-        // Add click ripple effect to cards
-        document.querySelectorAll('.stat-card, .activity-card').forEach(card => {
-            card.addEventListener('click', function(e) {
-                const ripple = document.createElement('div');
-                const rect = this.getBoundingClientRect();
-                const size = 60;
-                const x = e.clientX - rect.left - size / 2;
-                const y = e.clientY - rect.top - size / 2;
-                
-                ripple.style.width = ripple.style.height = size + 'px';
-                ripple.style.left = x + 'px';
-                ripple.style.top = y + 'px';
-                ripple.style.position = 'absolute';
-                ripple.style.background = 'rgba(34, 197, 94, 0.3)';
-                ripple.style.borderRadius = '50%';
-                ripple.style.transform = 'scale(0)';
-                ripple.style.animation = 'ripple 0.6s linear';
-                ripple.style.pointerEvents = 'none';
-                
-                this.style.position = 'relative';
-                this.style.overflow = 'hidden';
-                this.appendChild(ripple);
-                
-                setTimeout(() => {
-                    ripple.remove();
-                }, 600);
-            });
-        });
-        
-        // Add CSS animation for ripple effect
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes ripple {
-                to {
-                    transform: scale(4);
-                    opacity: 0;
-                }
-            }
-        `;
-        document.head.appendChild(style);
     </script>
 </body>
 </html>
