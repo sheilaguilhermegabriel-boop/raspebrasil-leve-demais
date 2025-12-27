@@ -1,38 +1,98 @@
 <?php
 @session_start();
 
-if (isset($_SESSION['usuario_id'])) {
-    $_SESSION['message'] = ['type' => 'warning', 'text' => 'Você já está logado!'];
-    header("Location: /");
+if (file_exists('./conexao.php')) {
+    include('./conexao.php');
+} elseif (file_exists('../conexao.php')) {
+    include('../conexao.php');
+} elseif (file_exists('../../conexao.php')) {
+    include('../../conexao.php');
+}
+
+if (!isset($_SESSION['usuario_id'])) {
+    $_SESSION['message'] = ['type' => 'warning', 'text' => 'Você precisa estar logado para acessar esta página!'];
+    header("Location: /login");
     exit;
 }
 
-require_once '../conexao.php';
+$usuario_id = $_SESSION['usuario_id'];
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = trim($_POST['email']);
-    $senha = $_POST['senha'];
-
-    $stmt = $pdo->prepare("SELECT * FROM usuarios WHERE email = ? LIMIT 1");
-    $stmt->execute([$email]);
+try {
+    $stmt = $pdo->prepare("SELECT * FROM usuarios WHERE id = :id LIMIT 1");
+    $stmt->bindParam(':id', $usuario_id, PDO::PARAM_INT);
+    $stmt->execute();
     $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if ($usuario && password_verify($senha, $usuario['senha'])) {
-      
-      if($usuario['banido'] == 1){
-        $_SESSION['message'] = ['type' => 'failure', 'text' => 'Você está banido!'];
-        header("Location: /");
-        exit;
-      }
-      
-        $_SESSION['usuario_id'] = $usuario['id'];
-        $_SESSION['message'] = ['type' => 'success', 'text' => 'Login realizado com sucesso!'];
-        header("Location: /");
-        exit;
-    } else {
-        $_SESSION['message'] = ['type' => 'failure', 'text' => 'E-mail ou senha inválidos.'];
+    if (!$usuario) {
+        $_SESSION['message'] = ['type' => 'failure', 'text' => 'Usuário não encontrado!'];
         header("Location: /login");
         exit;
+    }
+
+    $stmt_depositos = $pdo->prepare("SELECT SUM(valor) as total_depositado FROM depositos WHERE user_id = :user_id AND status = 'PAID'");
+    $stmt_depositos->bindParam(':user_id', $usuario_id, PDO::PARAM_INT);
+    $stmt_depositos->execute();
+    $total_depositado = $stmt_depositos->fetch(PDO::FETCH_ASSOC)['total_depositado'] ?? 0;
+
+    $stmt_saques = $pdo->prepare("SELECT SUM(valor) as total_sacado FROM saques WHERE user_id = :user_id AND status = 'PAID'");
+    $stmt_saques->bindParam(':user_id', $usuario_id, PDO::PARAM_INT);
+    $stmt_saques->execute();
+    $total_sacado = $stmt_saques->fetch(PDO::FETCH_ASSOC)['total_sacado'] ?? 0;
+
+} catch (PDOException $e) {
+    $_SESSION['message'] = ['type' => 'failure', 'text' => 'Erro ao carregar dados do usuário!'];
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $senha_atual = $_POST['senha_atual'] ?? '';
+    $nome = trim($_POST['nome'] ?? '');
+    $telefone = trim($_POST['telefone'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $nova_senha = $_POST['nova_senha'] ?? '';
+    $confirmar_senha = $_POST['confirmar_senha'] ?? '';
+
+    if (!password_verify($senha_atual, $usuario['senha'])) {
+        $_SESSION['message'] = ['type' => 'failure', 'text' => 'Senha atual incorreta!'];
+    } else {
+        try {
+            $dados = [
+                'id' => $usuario_id,
+                'nome' => $nome,
+                'telefone' => $telefone,
+                'email' => $email
+            ];
+
+            if (!empty($nova_senha)) {
+                if ($nova_senha === $confirmar_senha) {
+                    $dados['senha'] = password_hash($nova_senha, PASSWORD_BCRYPT);
+                } else {
+                    $_SESSION['message'] = ['type' => 'failure', 'text' => 'As novas senhas não coincidem!'];
+                    header("Location: /perfil");
+                    exit;
+                }
+            }
+
+            $setParts = [];
+            foreach ($dados as $key => $value) {
+                if ($key !== 'id') {
+                    $setParts[] = "$key = :$key";
+                }
+            }
+
+            $query = "UPDATE usuarios SET " . implode(', ', $setParts) . " WHERE id = :id";
+            $stmt = $pdo->prepare($query);
+
+            if ($stmt->execute($dados)) {
+                $_SESSION['message'] = ['type' => 'success', 'text' => 'Perfil atualizado com sucesso!'];
+                header("Location: /perfil");
+                exit;
+            } else {
+                $_SESSION['message'] = ['type' => 'failure', 'text' => 'Erro ao atualizar perfil!'];
+            }
+
+        } catch (PDOException $e) {
+            $_SESSION['message'] = ['type' => 'failure', 'text' => 'Erro ao atualizar perfil: ' . $e->getMessage()];
+        }
     }
 }
 ?>
@@ -42,7 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $nomeSite;?> - Login</title>
+    <title><?php echo $nomeSite;?> - Meu Perfil</title>
     
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -61,143 +121,308 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <style>
         /* Page Styles */
-        .login-section {
+        .perfil-section {
             margin-top: 100px;
             padding: 4rem 0;
             background: #0a0a0a;
             min-height: calc(100vh - 200px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
         }
 
-        .login-container {
-            max-width: 1200px;
-            width: 100%;
+        .perfil-container {
+            max-width: 900px;
             margin: 0 auto;
             padding: 0 2rem;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 4rem;
-            align-items: center;
         }
 
-        /* Left Section */
-        .left-section {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            position: relative;
+        /* Header */
+        .page-header {
+            text-align: center;
+            margin-bottom: 3rem;
         }
 
-        .brand-content {
-            position: relative;
-            z-index: 2;
-        }
-
-        .brand-logo {
-            width: 120px;
-            height: 120px;
-            background: linear-gradient(135deg, #22c55e, #16a34a);
-            border-radius: 24px;
-            margin-bottom: 2rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 3rem;
+        .page-title {
+            font-size: 2.5rem;
+            font-weight: 900;
             color: white;
-            font-weight: 900;
-            box-shadow: 0 20px 40px rgba(34, 197, 94, 0.3);
-            position: relative;
-        }
-
-        .brand-logo::after {
-            content: '';
-            position: absolute;
-            inset: -4px;
-            background: linear-gradient(135deg, #22c55e, #16a34a);
-            border-radius: 28px;
-            z-index: -1;
-            opacity: 0.3;
-            animation: pulse 3s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); opacity: 0.3; }
-            50% { transform: scale(1.05); opacity: 0.1; }
-        }
-
-        .brand-title {
-            font-size: 3rem;
-            font-weight: 900;
             margin-bottom: 1rem;
             background: linear-gradient(135deg, #ffffff, #9ca3af);
             background-clip: text;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            line-height: 1.1;
         }
 
-        .brand-subtitle {
-            font-size: 1.3rem;
+        .page-subtitle {
+            font-size: 1.1rem;
             color: #6b7280;
-            line-height: 1.6;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        /* User Avatar */
+        .user-avatar {
+            width: 100px;
+            height: 100px;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            border-radius: 50%;
+            margin: 0 auto 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 2.5rem;
+            font-weight: 800;
+            box-shadow: 0 8px 32px rgba(34, 197, 94, 0.3);
+            position: relative;
+        }
+
+        .user-avatar::after {
+            content: '';
+            position: absolute;
+            inset: -4px;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            border-radius: 50%;
+            z-index: -1;
+            opacity: 0.3;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.3; }
+            50% { transform: scale(1.1); opacity: 0.1; }
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
             margin-bottom: 3rem;
         }
 
-        .highlight-text {
-            color: #22c55e;
-            font-weight: 700;
-        }
+/* Ajustes específicos para os cards de estatísticas */
 
-        .features-list {
-            display: flex;
-            flex-direction: column;
-            gap: 1.5rem;
-        }
+.stat-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    padding: 2rem;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    min-height: 140px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
 
-        .feature-item {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            color: #e5e7eb;
-            font-size: 1.1rem;
-        }
+.stat-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(34, 197, 94, 0.3);
+    box-shadow: 0 10px 40px rgba(34, 197, 94, 0.1);
+}
 
-        .feature-icon {
-            width: 40px;
-            height: 40px;
-            background: rgba(34, 197, 94, 0.2);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #22c55e;
-            font-size: 1.1rem;
-            flex-shrink: 0;
-        }
+.stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    background: var(--accent-color);
+}
 
-        /* Right Section */
-        .right-section {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
+.stat-card.saldo::before { 
+    background: linear-gradient(180deg, #22c55e, #16a34a); 
+}
 
-        .login-card {
+.stat-card.depositos::before { 
+    background: linear-gradient(180deg, #3b82f6, #2563eb); 
+}
+
+.stat-card.saques::before { 
+    background: linear-gradient(180deg, #f59e0b, #d97706); 
+}
+
+.stat-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+    gap: 1.25rem;
+}
+
+.stat-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.stat-info h3 {
+    color: #9ca3af;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 1rem;
+    line-height: 1.2;
+}
+
+.stat-value {
+    font-size: 2rem;
+    font-weight: 900;
+    color: white;
+    line-height: 1.1;
+    margin-bottom: 0.5rem;
+}
+
+.stat-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    flex-shrink: 0;
+    margin-top: 0.25rem;
+}
+
+.stat-icon.saldo { 
+    background: rgba(34, 197, 94, 0.15); 
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.stat-icon.depositos { 
+    background: rgba(59, 130, 246, 0.15); 
+    color: #3b82f6;
+    border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.stat-icon.saques { 
+    background: rgba(245, 158, 11, 0.15); 
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.stat-footer {
+    color: #6b7280;
+    font-size: 0.8rem;
+    margin-top: auto;
+    padding-top: 0.75rem;
+}
+
+/* Ajustes responsivos melhorados */
+@media (max-width: 768px) {
+    .stat-card {
+        padding: 1.75rem;
+        min-height: 120px;
+    }
+    
+    .stat-header {
+        gap: 1rem;
+        margin-bottom: 0.25rem;
+    }
+    
+    .stat-info h3 {
+        font-size: 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+    
+    .stat-value {
+        font-size: 1.7rem;
+        margin-bottom: 0.25rem;
+    }
+    
+    .stat-icon {
+        width: 48px;
+        height: 48px;
+        font-size: 1.2rem;
+    }
+    
+    .stat-footer {
+        font-size: 0.75rem;
+        padding-top: 0.5rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .stat-card {
+        padding: 1.5rem;
+        min-height: 110px;
+    }
+    
+    .stat-header {
+        gap: 0.75rem;
+    }
+    
+    .stat-value {
+        font-size: 1.5rem;
+    }
+    
+    .stat-icon {
+        width: 44px;
+        height: 44px;
+        font-size: 1.1rem;
+        margin-top: 0;
+    }
+}
+
+/* Melhorias no grid das estatísticas */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 3rem;
+}
+
+@media (max-width: 900px) {
+    .stats-grid {
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1.25rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+}
+
+/* Animações melhoradas */
+.stat-card {
+    opacity: 0;
+    animation: slideInUp 0.6s ease-out forwards;
+}
+
+.stat-card:nth-child(1) { animation-delay: 0.1s; }
+.stat-card:nth-child(2) { animation-delay: 0.2s; }
+.stat-card:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes slideInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+        /* Main Form Card */
+        .form-card {
             background: rgba(20, 20, 20, 0.8);
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 24px;
             padding: 3rem;
-            width: 100%;
-            max-width: 450px;
             backdrop-filter: blur(20px);
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
             position: relative;
             overflow: hidden;
         }
 
-        .login-card::before {
+        .form-card::before {
             content: '';
             position: absolute;
             top: 0;
@@ -209,14 +434,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             transform: translate(50%, -50%);
         }
 
-        .login-header {
+        .form-header {
             text-align: center;
-            margin-bottom: 2.5rem;
+            margin-bottom: 3rem;
             position: relative;
             z-index: 2;
         }
 
-        .login-icon {
+        .form-icon {
             width: 60px;
             height: 60px;
             background: linear-gradient(135deg, #22c55e, #16a34a);
@@ -230,20 +455,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             box-shadow: 0 8px 24px rgba(34, 197, 94, 0.3);
         }
 
-        .login-title {
+        .form-title {
             font-size: 1.8rem;
             font-weight: 700;
             color: white;
             margin-bottom: 0.5rem;
         }
 
-        .login-subtitle {
+        .form-description {
             color: #9ca3af;
             font-size: 1rem;
         }
 
         /* Form Styles */
-        .login-form {
+        .form-grid {
             display: flex;
             flex-direction: column;
             gap: 1.5rem;
@@ -291,12 +516,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             color: #22c55e;
         }
 
+        /* Password Toggle */
+        .password-toggle {
+            background: none;
+            border: none;
+            color: #22c55e;
+            cursor: pointer;
+            padding: 0.5rem 0;
+            font-size: 0.9rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: color 0.3s ease;
+            margin: 1rem 0;
+        }
+
+        .password-toggle:hover {
+            color: #16a34a;
+        }
+
+        .password-fields {
+            display: none;
+            flex-direction: column;
+            gap: 1.5rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: rgba(34, 197, 94, 0.05);
+            border: 1px solid rgba(34, 197, 94, 0.1);
+            border-radius: 16px;
+        }
+
+        .password-fields.active {
+            display: flex;
+        }
+
+        .password-fields-title {
+            color: #22c55e;
+            font-weight: 600;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
         /* Submit Button */
         .submit-btn {
             background: linear-gradient(135deg, #22c55e, #16a34a);
             color: white;
             border: none;
-            padding: 1rem;
+            padding: 1rem 2rem;
             border-radius: 12px;
             font-size: 1rem;
             font-weight: 700;
@@ -307,8 +579,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             justify-content: center;
             gap: 0.5rem;
             box-shadow: 0 4px 20px rgba(34, 197, 94, 0.3);
-            position: relative;
-            overflow: hidden;
+            margin-top: 1rem;
         }
 
         .submit-btn:hover {
@@ -322,194 +593,122 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             transform: none;
         }
 
-        .submit-btn::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-            transition: left 0.5s ease;
-        }
-
-        .submit-btn:hover::before {
-            left: 100%;
-        }
-
-        /* Footer Links */
-        .form-footer {
-            text-align: center;
-            margin-top: 2rem;
-            position: relative;
-            z-index: 2;
-        }
-
-        .footer-text {
-            color: #6b7280;
-            margin-bottom: 1rem;
-        }
-
-        .footer-link {
+        /* Success Message */
+        .success-message {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            border-radius: 12px;
+            padding: 1rem;
             color: #22c55e;
-            text-decoration: none;
+            text-align: center;
+            margin-bottom: 2rem;
+            display: none;
+        }
+
+        .success-message.active {
+            display: block;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Security Tips */
+        .security-tips {
+            background: rgba(59, 130, 246, 0.05);
+            border: 1px solid rgba(59, 130, 246, 0.1);
+            border-radius: 16px;
+            padding: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .security-title {
+            color: #3b82f6;
             font-weight: 600;
-            transition: color 0.3s ease;
-        }
-
-        .footer-link:hover {
-            color: #16a34a;
-            text-decoration: underline;
-        }
-
-        .divider {
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
             display: flex;
             align-items: center;
-            margin: 1.5rem 0;
-            color: #6b7280;
-            font-size: 0.9rem;
+            gap: 0.5rem;
         }
 
-        .divider::before,
-        .divider::after {
-            content: '';
-            flex: 1;
-            height: 1px;
-            background: rgba(255, 255, 255, 0.1);
+        .security-list {
+            list-style: none;
+            padding: 0;
         }
 
-        .divider span {
-            padding: 0 1rem;
+        .security-list li {
+            color: #9ca3af;
+            font-size: 0.85rem;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
         }
 
-        /* Floating Elements */
-        .floating-elements {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: 1;
-        }
-
-        .floating-element {
-            position: absolute;
-            width: 8px;
-            height: 8px;
-            background: rgba(34, 197, 94, 0.3);
-            border-radius: 50%;
-            animation: float 6s ease-in-out infinite;
-        }
-
-        .floating-element:nth-child(1) {
-            top: 20%;
-            left: 10%;
-            animation-delay: 0s;
-        }
-
-        .floating-element:nth-child(2) {
-            top: 40%;
-            right: 15%;
-            animation-delay: 1s;
-        }
-
-        .floating-element:nth-child(3) {
-            bottom: 30%;
-            left: 20%;
-            animation-delay: 2s;
-        }
-
-        .floating-element:nth-child(4) {
-            bottom: 20%;
-            right: 25%;
-            animation-delay: 3s;
-        }
-
-        @keyframes float {
-            0%, 100% {
-                transform: translateY(0) rotate(0deg);
-                opacity: 0.3;
-            }
-            50% {
-                transform: translateY(-20px) rotate(180deg);
-                opacity: 0.8;
-            }
+        .security-list i {
+            color: #3b82f6;
+            font-size: 0.75rem;
         }
 
         /* Responsive */
-        @media (max-width: 1024px) {
-            .login-container {
-                grid-template-columns: 1fr;
-                gap: 2rem;
-                max-width: 600px;
-            }
-
-            .brand-content {
-                display: none;
-            }
-            
-            .left-section {
-                order: 2;
-                text-align: center;
-            }
-            
-            .right-section {
-                order: 1;
-            }
-            
-            .brand-title {
-                font-size: 2.5rem;
-            }
-            
-            .features-list {
-                flex-direction: row;
-                flex-wrap: wrap;
-                justify-content: center;
-                gap: 1rem;
-            }
-            
-            .feature-item {
-                font-size: 1rem;
-            }
-        }
-
         @media (max-width: 768px) {
-            .login-section {
-                padding: 2rem 0;
-            }
-            
-            .login-container {
+            .perfil-container {
                 padding: 0 1rem;
             }
             
-            .login-card {
-                padding: 2rem;
+            .page-title {
+                font-size: 2rem;
+            }
+            
+            .form-card {
+                padding: 2rem 1.5rem;
                 border-radius: 20px;
             }
             
-            .brand-logo {
+            .stats-grid {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+            
+            .stat-card {
+                padding: 1.5rem;
+            }
+            
+            .stat-header {
+                align-items: flex-start;
+                gap: 0.75rem;
+            }
+            
+            .stat-value {
+                font-size: 1.5rem;
+                line-height: 1.3;
+            }
+            
+            .stat-icon {
+                width: 45px;
+                height: 45px;
+                font-size: 1.1rem;
+            }
+            
+            .user-avatar {
                 width: 80px;
                 height: 80px;
                 font-size: 2rem;
             }
-            
-            .brand-title {
-                font-size: 2rem;
-            }
-            
-            .brand-subtitle {
-                font-size: 1.1rem;
-            }
-            
-            .features-list {
-                display: none;
-            }
         }
 
         @media (max-width: 480px) {
-            .login-card {
-                padding: 1.5rem;
+            .form-card {
+                padding: 1.5rem 1rem;
             }
             
             .form-input {
@@ -550,110 +749,187 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
     <?php include('../inc/header.php'); ?>
+    <?php include('../components/modals.php'); ?>
 
-    <section class="login-section">
-        <!-- Floating Elements -->
-        <div class="floating-elements">
-            <div class="floating-element"></div>
-            <div class="floating-element"></div>
-            <div class="floating-element"></div>
-            <div class="floating-element"></div>
-        </div>
+    <section class="perfil-section">
+        <div class="perfil-container">
+            <!-- Page Header -->
+            <div class="page-header fade-in">
+                <div class="user-avatar">
+                    <?= strtoupper(substr($usuario['nome'], 0, 2)) ?>
+                </div>
+                <h1 class="page-title">Meu Perfil</h1>
+                <p class="page-subtitle">
+                    Gerencie suas informações pessoais e configurações da conta
+                </p>
+            </div>
 
-        <div class="login-container fade-in">
-            <!-- Left Section -->
-            <div class="left-section">
-                <div class="brand-content">
-                    <h1 class="brand-title">Bem-vindo de volta!</h1>
-                    <p class="brand-subtitle">
-                        Entre na sua conta e continue ganhando 
-                        <span class="highlight-text">prêmios incríveis</span> 
-                        com nossas raspadinhas!
-                    </p>
-                    
-                    <div class="features-list">
-                        <div class="feature-item">
-                            <div class="feature-icon">
-                                <i class="bi bi-shield-check"></i>
-                            </div>
-                            <span>Login 100% seguro</span>
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card saldo">
+                    <div class="stat-header">
+                        <div class="stat-info">
+                            <h3>Saldo Atual</h3>
+                            <div class="stat-value">R$ <?= number_format($usuario['saldo'] ?? 0, 2, ',', '.') ?></div>
                         </div>
-                        <div class="feature-item">
-                            <div class="feature-icon">
-                                <i class="bi bi-lightning"></i>
-                            </div>
-                            <span>PIX instantâneo</span>
+                        <div class="stat-icon saldo">
+                            <i class="bi bi-wallet2"></i>
                         </div>
-                        <div class="feature-item">
-                            <div class="feature-icon">
-                                <i class="bi bi-trophy"></i>
-                            </div>
-                            <span>Prêmios de até R$ 15.000</span>
+                    </div>
+                </div>
+
+                <div class="stat-card depositos">
+                    <div class="stat-header">
+                        <div class="stat-info">
+                            <h3>Total Depositado</h3>
+                            <div class="stat-value">R$ <?= number_format($total_depositado, 2, ',', '.') ?></div>
                         </div>
-                        <div class="feature-item">
-                            <div class="feature-icon">
-                                <i class="bi bi-headset"></i>
-                            </div>
-                            <span>Suporte 24/7</span>
+                        <div class="stat-icon depositos">
+                            <i class="bi bi-arrow-down-circle"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stat-card saques">
+                    <div class="stat-header">
+                        <div class="stat-info">
+                            <h3>Total Sacado</h3>
+                            <div class="stat-value">R$ <?= number_format($total_sacado, 2, ',', '.') ?></div>
+                        </div>
+                        <div class="stat-icon saques">
+                            <i class="bi bi-arrow-up-circle"></i>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Right Section -->
-            <div class="right-section">
-                <div class="login-card">
-                    <div class="login-header">
-                        <div class="login-icon">
-                            <i class="bi bi-person-check"></i>
+            <!-- Form Card -->
+            <div class="form-card">
+                <div class="form-header">
+                    <div class="form-icon">
+                        <i class="bi bi-person-gear"></i>
+                    </div>
+                    <h2 class="form-title">Editar Perfil</h2>
+                    <p class="form-description">
+                        Atualize suas informações pessoais com segurança
+                    </p>
+                </div>
+
+                <form method="POST" class="form-grid" id="perfilForm">
+                    <div class="form-group">
+                        <div class="input-icon">
+                            <i class="bi bi-person"></i>
                         </div>
-                        <h2 class="login-title">Acesse sua conta</h2>
-                        <p class="login-subtitle">
-                            Digite suas credenciais para continuar
-                        </p>
+                        <input type="text" 
+                               name="nome" 
+                               class="form-input"
+                               value="<?= htmlspecialchars($usuario['nome'] ?? '') ?>" 
+                               placeholder="Nome completo" 
+                               required>
                     </div>
 
-                    <form method="POST" class="login-form" id="loginForm">
-                        <div class="form-group">
-                            <div class="input-icon">
-                                <i class="bi bi-envelope"></i>
-                            </div>
-                            <input type="email" 
-                                   name="email" 
-                                   class="form-input"
-                                   placeholder="seu@email.com" 
-                                   required>
+                    <div class="form-group">
+                        <div class="input-icon">
+                            <i class="bi bi-telephone"></i>
                         </div>
+                        <input type="text" 
+                               id="telefone" 
+                               name="telefone" 
+                               class="form-input"
+                               value="<?= htmlspecialchars($usuario['telefone'] ?? '') ?>" 
+                               placeholder="(11) 99999-9999" 
+                               required>
+                    </div>
 
+                    <div class="form-group">
+                        <div class="input-icon">
+                            <i class="bi bi-envelope"></i>
+                        </div>
+                        <input type="email" 
+                               name="email" 
+                               class="form-input"
+                               value="<?= htmlspecialchars($usuario['email'] ?? '') ?>" 
+                               placeholder="seu@email.com" 
+                               required>
+                    </div>
+
+                    <!-- Password Toggle -->
+                    <button type="button" class="password-toggle" id="toggleSenha">
+                        <i class="bi bi-key"></i>
+                        Alterar senha
+                    </button>
+
+                    <!-- Password Fields -->
+                    <div class="password-fields" id="camposSenha">
+                        <div class="password-fields-title">
+                            <i class="bi bi-shield-lock"></i>
+                            Nova Senha
+                        </div>
+                        
                         <div class="form-group">
                             <div class="input-icon">
                                 <i class="bi bi-lock"></i>
                             </div>
                             <input type="password" 
-                                   name="senha" 
+                                   name="nova_senha" 
                                    class="form-input"
-                                   placeholder="Sua senha" 
-                                   required>
+                                   placeholder="Digite a nova senha">
                         </div>
 
-                        <button type="submit" class="submit-btn" id="submitBtn">
-                            <i class="bi bi-box-arrow-in-right"></i>
-                            Entrar
-                        </button>
-                    </form>
-
-                    <div class="form-footer">
-                        <div class="divider">
-                            <span>ou</span>
+                        <div class="form-group">
+                            <div class="input-icon">
+                                <i class="bi bi-lock-fill"></i>
+                            </div>
+                            <input type="password" 
+                                   name="confirmar_senha" 
+                                   class="form-input"
+                                   placeholder="Confirme a nova senha">
                         </div>
-                        
-                        <p class="footer-text">
-                            Ainda não tem uma conta?
-                        </p>
-                        <a href="/cadastro" class="footer-link">
-                            Cadastre-se grátis
-                        </a>
                     </div>
+
+                    <!-- Current Password -->
+                    <div class="form-group">
+                        <div class="input-icon">
+                            <i class="bi bi-shield-check"></i>
+                        </div>
+                        <input type="password" 
+                               name="senha_atual" 
+                               class="form-input"
+                               placeholder="Senha atual (para confirmar alterações)" 
+                               required>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <button type="submit" class="submit-btn" id="submitBtn">
+                        <i class="bi bi-check-circle"></i>
+                        Atualizar Perfil
+                    </button>
+                </form>
+
+                <!-- Security Tips -->
+                <div class="security-tips">
+                    <div class="security-title">
+                        <i class="bi bi-info-circle"></i>
+                        Dicas de Segurança
+                    </div>
+                    <ul class="security-list">
+                        <li>
+                            <i class="bi bi-check"></i>
+                            Use uma senha forte com pelo menos 8 caracteres
+                        </li>
+                        <li>
+                            <i class="bi bi-check"></i>
+                            Nunca compartilhe sua senha com terceiros
+                        </li>
+                        <li>
+                            <i class="bi bi-check"></i>
+                            Mantenha seus dados sempre atualizados
+                        </li>
+                        <li>
+                            <i class="bi bi-check"></i>
+                            Use um e-mail válido para recuperação da conta
+                        </li>
+                    </ul>
                 </div>
             </div>
         </div>
@@ -663,14 +939,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // Phone mask
+            const telefoneInput = document.getElementById('telefone');
+            telefoneInput.addEventListener('input', function(e) {
+                let value = e.target.value.replace(/\D/g, '');
+                if (value.length > 11) value = value.slice(0, 11);
+
+                let formatted = '';
+                if (value.length > 0) {
+                    formatted += '(' + value.substring(0, 2);
+                }
+                if (value.length >= 3) {
+                    formatted += ') ' + value.substring(2, 7);
+                }
+                if (value.length >= 8) {
+                    formatted += '-' + value.substring(7);
+                }
+                e.target.value = formatted;
+            });
+
+            // Password toggle
+            const toggleSenha = document.getElementById('toggleSenha');
+            const camposSenha = document.getElementById('camposSenha');
+
+            toggleSenha.addEventListener('click', function() {
+                camposSenha.classList.toggle('active');
+                
+                const icon = this.querySelector('i');
+                const text = camposSenha.classList.contains('active') ? 'Cancelar' : 'Alterar senha';
+                const iconClass = camposSenha.classList.contains('active') ? 'bi-x-circle' : 'bi-key';
+                
+                icon.className = `bi ${iconClass}`;
+                this.innerHTML = `<i class="bi ${iconClass}"></i> ${text}`;
+            });
+
             // Form submission
-            const loginForm = document.getElementById('loginForm');
+            const perfilForm = document.getElementById('perfilForm');
             const submitBtn = document.getElementById('submitBtn');
 
-            loginForm.addEventListener('submit', function(e) {
+            perfilForm.addEventListener('submit', function(e) {
                 submitBtn.disabled = true;
-                submitBtn.innerHTML = '<i class="bi bi-arrow-repeat" style="animation: spin 1s linear infinite;"></i> Entrando...';
-                loginForm.classList.add('loading');
+                submitBtn.innerHTML = '<i class="bi bi-arrow-repeat" style="animation: spin 1s linear infinite;"></i> Atualizando...';
+                perfilForm.classList.add('loading');
             });
 
             // Add spin animation
@@ -682,18 +992,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             `;
             document.head.appendChild(style);
-
-            // Focus enhancements
-            const inputs = document.querySelectorAll('.form-input');
-            inputs.forEach(input => {
-                input.addEventListener('focus', function() {
-                    this.parentElement.style.transform = 'translateY(-2px)';
-                });
-                
-                input.addEventListener('blur', function() {
-                    this.parentElement.style.transform = 'translateY(0)';
-                });
-            });
         });
 
         // Notiflix configuration
@@ -711,10 +1009,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             failure: {
                 background: '#ef4444',
                 textColor: '#fff',
-            },
-            warning: {
-                background: '#f59e0b',
-                textColor: '#fff',
             }
         });
 
@@ -724,7 +1018,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php unset($_SESSION['message']); ?>
         <?php endif; ?>
 
-        console.log('%c🔐 Página de Login carregada!', 'color: #22c55e; font-size: 16px; font-weight: bold;');
+        console.log('%c👤 Perfil do usuário carregado!', 'color: #22c55e; font-size: 16px; font-weight: bold;');
     </script>
 </body>
 </html>
